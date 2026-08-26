@@ -1,0 +1,43 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: oficina-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-oficina}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-oficina}
+      POSTGRES_DB: ${DB_DATABASE:-oficina}
+    ports:
+      - '${DB_PORT:-5432}:5432'
+    volumes:
+      - oficina_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USERNAME:-oficina}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      target: production
+    container_name: oficina-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: ${DB_USERNAME:-oficina}
+      DB_PASSWORD: ${DB_PASSWORD:-oficina}
+      DB_DATABASE: ${DB_DATABASE:-oficina}
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
+    ports:
+      - '${PORT:-3000}:3000'
+
+volumes:
+  oficina_postgres_data:
