@@ -6,6 +6,7 @@ coverage
 .env.local
 
 k8s/02-secret.yaml
+k8s-aws/02-secret.yaml
 infra/*.tfstate
 infra/*.tfstate.backup
 infra/.terraform/

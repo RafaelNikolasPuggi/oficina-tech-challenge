@@ -1,9 +1,14 @@
 # Oficina Mecânica — Sistema Integrado de Atendimento e Execução de Serviços
 
-Tech Challenge (POS TECH / SOAT) — **Fase 1 + Fase 2**. Back-end de gestão de clientes,
+Tech Challenge (POS TECH / SOAT) — **Fases 1, 2 e 3**. Back-end de gestão de clientes,
 veículos, catálogo de serviços/peças e ordens de serviço (OS) de uma oficina mecânica,
-aplicando **Domain-Driven Design**/Arquitetura Hexagonal, autenticação JWT, testes
-automatizados, containerização, Kubernetes, Terraform e CI/CD.
+aplicando **Domain-Driven Design**/Arquitetura Hexagonal, autenticação JWT (admin e
+cliente via Function Serverless), testes automatizados, containerização, Kubernetes,
+Terraform, CI/CD, infraestrutura em nuvem (AWS) e observabilidade (Datadog).
+
+Este é o repositório 4 de 4 do Tech Challenge — a aplicação principal. Os outros três
+(`oficina-lambda-auth`, `oficina-infra-k8s`, `oficina-infra-db`) estão descritos na
+seção [Fase 3](#fase-3--operação-corporativa-nuvem-real-4-repositórios) abaixo.
 
 ## Objetivo
 
@@ -16,6 +21,9 @@ Substituir o controle manual (planilhas/anotações) por um sistema único que p
 - Medir o tempo médio de execução das OS finalizadas.
 - **(Fase 2)** Suportar picos de demanda com escalabilidade dinâmica (HPA), com
   provisionamento e deploy automatizados (Terraform + CI/CD).
+- **(Fase 3)** Autenticar o cliente por CPF via uma Function Serverless dedicada,
+  rodar em infraestrutura de nuvem gerenciada (EKS + RDS) e dar visibilidade
+  operacional via observabilidade (APM, logs estruturados, dashboards).
 
 ## Stack e justificativas técnicas
 
@@ -30,6 +38,9 @@ Substituir o controle manual (planilhas/anotações) por um sistema único que p
 | **Nodemailer + Mailhog** | Notificação por e-mail das mudanças de status da OS; Mailhog captura os e-mails localmente/CI sem precisar de conta SMTP real. |
 | **Kubernetes + Terraform (Fase 2)** | Escalabilidade dinâmica (HPA) e infraestrutura versionada/reprodutível; cluster local (kind) para não depender de custo de nuvem — ver [`docs/architecture.md`](docs/architecture.md). |
 | **GitHub Actions (Fase 2)** | Pipeline única cobrindo build, testes, build/push da imagem, provisionamento (Terraform) e deploy (kubectl) — sem exigir conta de nuvem. |
+| **AWS EKS + RDS (Fase 3)** | Cluster Kubernetes e banco gerenciados de verdade, provisionados por repositórios Terraform separados — ver [ADR 0001](docs/adr/0001-nuvem-aws.md)/[ADR 0002](docs/adr/0002-banco-gerenciado-rds.md). |
+| **Lambda + API Gateway (Fase 3)** | Autenticação de clientes por CPF, desacoplada do app principal — repositório `oficina-lambda-auth`, ver [ADR 0003](docs/adr/0003-autenticacao-serverless.md). |
+| **dd-trace + Datadog Agent (Fase 3)** | APM, logs estruturados correlacionados e métricas de infraestrutura — ver [`docs/observability.md`](docs/observability.md). |
 
 ## Arquitetura
 
@@ -95,10 +106,13 @@ OS), a operação inteira é revertida e uma `InsufficientStockException` é lan
 ### Segurança
 
 - Rotas administrativas (CRUD de clientes/veículos/serviços/peças, gestão de OS) exigem
-  `Authorization: Bearer <JWT>`.
-- Rotas voltadas ao cliente final (`GET /ordens-servico/:id/status`,
-  `POST /ordens-servico/:id/aprovacao`) são públicas, mas exigem o CPF/CNPJ do cliente
-  dono da OS como prova de posse — e têm rate limiting dedicado.
+  `Authorization: Bearer <JWT admin>` (`JwtAuthGuard`).
+- **(Fase 3)** Rotas voltadas ao cliente final (`GET /ordens-servico/:id/status`,
+  `POST /ordens-servico/:id/aprovacao`) exigem `Authorization: Bearer <JWT cliente>`
+  (`ClienteAuthGuard`), emitido pela Function Serverless de autenticação por CPF do
+  repositório `oficina-lambda-auth` (`POST {api_endpoint}/auth/cliente`) — o
+  `clienteId` vem do token, não mais de um parâmetro solto (Fases 1/2). Rate limiting
+  dedicado nessas duas rotas.
 - Senhas de usuários administrativos são armazenadas com `bcrypt`.
 - `helmet` + CORS habilitados; `ValidationPipe` global com `whitelist`/`forbidNonWhitelisted`.
 - CPF/CNPJ e placa validados por algoritmo (dígito verificador / formato), não apenas por regex solto.
@@ -168,11 +182,20 @@ acima do mínimo de 80% exigido.
 
 - [`docs/ddd/`](docs/ddd) — Event Storming (fluxos de criação/acompanhamento da OS e
   gestão de peças/insumos) e Linguagem Ubíqua.
-- [`docs/architecture.md`](docs/architecture.md) — Arquitetura Hexagonal (mapeamento de
-  camadas) e fluxo de deploy (Fase 2).
+- [`docs/architecture.md`](docs/architecture.md) — Arquitetura Hexagonal, fluxo de
+  deploy, diagrama de componentes (visão de nuvem completa) e diagrama de sequência
+  (autenticação + abertura de OS).
 - [`docs/security/vulnerability-report.md`](docs/security/vulnerability-report.md) —
   relatório de análise de vulnerabilidades (`npm audit` + práticas adotadas).
-- [`infra/README.md`](infra/README.md) — o que o Terraform provisiona e como aplicar.
+- [`docs/database/modelo-er.md`](docs/database/modelo-er.md) — diagrama ER e
+  justificativa formal do banco gerenciado.
+- [`docs/observability.md`](docs/observability.md) — o que está instrumentado
+  (APM, logs estruturados, correlação) e o que configurar no Datadog.
+- [`docs/adr/`](docs/adr) e [`docs/rfc/`](docs/rfc) — decisões arquiteturais e as
+  alternativas consideradas (nuvem, banco gerenciado, autenticação serverless, HPA,
+  integração entre os 4 repositórios).
+- [`infra/README.md`](infra/README.md) — o que o Terraform provisiona e como aplicar
+  (cluster kind local, Fase 2).
 - Swagger: `/docs` na aplicação em execução.
 
 ## Principais endpoints
@@ -193,10 +216,11 @@ acima do mínimo de 80% exigido.
 | PATCH | `/ordens-servico/:id/finalizar` | JWT | Finaliza a execução |
 | PATCH | `/ordens-servico/:id/entregar` | JWT | Marca como entregue |
 | GET | `/ordens-servico/metricas/tempo-medio` | JWT | Tempo médio de execução |
-| GET | `/ordens-servico/:id/status?documento=` | público* | Cliente consulta o status da OS |
-| POST | `/ordens-servico/:id/aprovacao` | público* | Cliente aprova/recusa o orçamento |
+| GET | `/ordens-servico/:id/status` | JWT cliente* | Cliente consulta o status da OS |
+| POST | `/ordens-servico/:id/aprovacao` | JWT cliente* | Cliente aprova/recusa o orçamento |
 
-\* validado por CPF/CNPJ do cliente dono da OS, não por JWT — ver seção Segurança.
+\* JWT emitido por `POST {api_endpoint}/auth/cliente` no repositório
+`oficina-lambda-auth` (Fase 3) — ver seção Segurança.
 
 **Comportamento de `GET /ordens-servico` (Fase 2):** sem o parâmetro `status`, aplica a
 listagem operacional — oculta OS `Finalizada`/`Entregue` (exclusão lógica) e ordena por
@@ -252,7 +276,49 @@ referência (já ignorado pelo git).
 de nuvem nem secret configurado manualmente — os segredos usados no cluster efêmero de
 CI são gerados aleatoriamente a cada execução.
 
-## Limitações conhecidas / próximos passos
+## Fase 3 — operação corporativa (nuvem real, 4 repositórios)
 
-API Gateway, autenticação serverless, banco gerenciado em nuvem e observabilidade
-avançada (Datadog/New Relic) são objeto da Fase 3 do Tech Challenge.
+Visão completa (diagramas, ADRs, RFCs) em [`docs/architecture.md`](docs/architecture.md#fase-3--operação-corporativa-4-repositórios-nuvem-real).
+Resumo do que muda em relação à Fase 2:
+
+- **4 repositórios** em vez de 1: `oficina-lambda-auth` (autenticação por CPF),
+  `oficina-infra-k8s` (VPC + EKS), `oficina-infra-db` (RDS), e este repositório
+  (aplicação principal). Cada um com seu próprio `README.md` e pipeline de CI/CD.
+- **Autenticação de cliente via JWT** (não mais CPF por requisição) — ver seção
+  Segurança acima e [ADR 0003](docs/adr/0003-autenticacao-serverless.md).
+- **Nuvem real (AWS)**, não mais `kind` local — cluster EKS, RDS gerenciado, tudo
+  integrado via SSM Parameter Store entre os 4 repositórios
+  ([ADR 0006](docs/adr/0006-ssm-para-integracao-entre-repos.md)).
+- **Observabilidade**: APM (`dd-trace`), logs estruturados com correlação de
+  requisição, Datadog Agent no cluster — ver [`docs/observability.md`](docs/observability.md).
+
+### Ordem de deploy (depois que a conta AWS existir)
+
+```bash
+# 1. VPC + EKS
+cd ../oficina-infra-k8s && terraform init && terraform apply
+
+# 2. RDS (lê a VPC do passo 1 via SSM)
+cd ../oficina-infra-db && terraform init && terraform apply
+
+# 3. Lambda de autenticação (lê VPC + RDS via SSM; gera e publica o JWT_SECRET)
+cd ../oficina-lambda-auth && npm run build && npm run package
+cd infra && terraform init && terraform apply
+
+# 4. Deploy deste app no EKS (lê RDS + JWT_SECRET via SSM) — automatizado
+#    pelo job `deploy-eks` do CI/CD quando AWS_DEPLOY_ENABLED=true estiver
+#    configurado como variável do repositório no GitHub.
+```
+
+`terraform destroy` em `oficina-infra-db` e depois `oficina-infra-k8s` ao final —
+ver o aviso de custo no README de cada um.
+
+### O que ainda depende de você
+
+- Criar a conta AWS e configurar `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` como
+  secrets, e `AWS_DEPLOY_ENABLED=true`/`AWS_REGION` como variáveis, nos 4 repositórios
+  no GitHub (nunca compartilhados nem commitados).
+- Criar a conta Datadog e configurar `DD_API_KEY` como secret neste repositório — ver
+  [`docs/observability.md`](docs/observability.md).
+- Criar os 4 repositórios no GitHub e adicionar `soat-architecture` como colaborador
+  em todos.

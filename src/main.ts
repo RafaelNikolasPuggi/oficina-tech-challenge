@@ -1,11 +1,15 @@
+import './tracer';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { JsonLoggerService } from './shared/logging/json-logger.service';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    logger: new JsonLoggerService(),
+  });
 
   app.use(helmet());
   app.enableCors();
@@ -24,9 +28,9 @@ async function bootstrap() {
       'Oficina Mecânica — Sistema Integrado de Atendimento e Execução de Serviços',
     )
     .setDescription(
-      'API do MVP (Fase 1 do Tech Challenge): gestão de clientes, veículos, catálogo de serviços/peças e ordens de serviço.',
+      'API do sistema de gestão da oficina: clientes, veículos, catálogo de serviços/peças, ordens de serviço e autenticação de clientes (Fase 3).',
     )
-    .setVersion('1.0.0')
+    .setVersion('3.0.0')
     .addBearerAuth(
       { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
       'JWT-auth',

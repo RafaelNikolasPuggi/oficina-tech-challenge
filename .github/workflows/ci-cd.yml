@@ -144,3 +144,73 @@ jobs:
         if: always()
         working-directory: infra
         run: terraform destroy -auto-approve
+
+  deploy-eks:
+    name: Deploy real no EKS (Fase 3)
+    needs: docker-build-push
+    # Só roda depois que oficina-infra-k8s, oficina-infra-db e
+    # oficina-lambda-auth já tiverem sido aplicados (publicam o que este job
+    # lê do SSM) e a variável de repositório AWS_DEPLOY_ENABLED=true estiver
+    # definida — ver docs/architecture.md. Não interfere no job `deploy`
+    # acima (kind efêmero), que continua validando cada push sem custo.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - uses: azure/setup-kubectl@v4
+
+      - name: Apontar kubectl para o cluster EKS (oficina-infra-k8s)
+        run: |
+          EKS_CLUSTER_NAME=$(aws ssm get-parameter --name /oficina/eks_cluster_name --query Parameter.Value --output text)
+          aws eks update-kubeconfig --region "${{ vars.AWS_REGION || 'us-east-1' }}" --name "$EKS_CLUSTER_NAME"
+
+      - name: Ler configuração publicada pelos outros repositórios (SSM)
+        run: |
+          echo "DB_ENDPOINT=$(aws ssm get-parameter --name /oficina/db_endpoint --query Parameter.Value --output text)" >> "$GITHUB_ENV"
+          echo "DB_USERNAME=$(aws ssm get-parameter --name /oficina/db_username --with-decryption --query Parameter.Value --output text)" >> "$GITHUB_ENV"
+          echo "DB_PASSWORD=$(aws ssm get-parameter --name /oficina/db_password --with-decryption --query Parameter.Value --output text)" >> "$GITHUB_ENV"
+          echo "JWT_SECRET=$(aws ssm get-parameter --name /oficina/jwt_secret --with-decryption --query Parameter.Value --output text)" >> "$GITHUB_ENV"
+
+      - name: Criar namespace e Secret da aplicação
+        run: |
+          kubectl create namespace oficina --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create secret generic oficina-app-secret -n oficina \
+            --from-literal=DB_USERNAME="${DB_USERNAME}" \
+            --from-literal=DB_PASSWORD="${DB_PASSWORD}" \
+            --from-literal=JWT_SECRET="${JWT_SECRET}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          if [ -n "${{ secrets.DD_API_KEY }}" ]; then
+            kubectl create secret generic datadog-secret -n oficina \
+              --from-literal=api-key="${{ secrets.DD_API_KEY }}" \
+              --dry-run=client -o yaml | kubectl apply -f -
+          fi
+
+      - name: Aplicar manifestos Kubernetes da aplicação (k8s-aws/)
+        run: |
+          sed -e "s#ghcr.io/OWNER/oficina-tech-challenge:latest#${{ needs.docker-build-push.outputs.image_tag }}#" \
+              k8s-aws/03-deployment.yaml > /tmp/03-deployment.yaml
+          sed -e "s#__DB_ENDPOINT__#${DB_ENDPOINT}#" \
+              k8s-aws/01-configmap.yaml > /tmp/01-configmap.yaml
+          kubectl apply -f k8s-aws/00-namespace.yaml
+          kubectl apply -f /tmp/01-configmap.yaml
+          kubectl apply -f /tmp/03-deployment.yaml
+          kubectl apply -f k8s-aws/04-service.yaml
+          kubectl apply -f k8s-aws/05-hpa.yaml
+          kubectl apply -f k8s-aws/06-mailhog.yaml
+          if [ -n "${{ secrets.DD_API_KEY }}" ]; then
+            kubectl apply -f k8s-aws/07-datadog-agent.yaml
+          fi
+          kubectl -n oficina rollout status deployment/oficina-app --timeout=300s
+
+      - name: URL pública do app (NLB)
+        run: |
+          echo "Aguardando o Load Balancer ficar pronto..."
+          sleep 30
+          kubectl -n oficina get svc oficina-app -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'

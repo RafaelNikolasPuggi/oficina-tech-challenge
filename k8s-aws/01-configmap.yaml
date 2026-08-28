@@ -1,0 +1,23 @@
+# Variáveis NÃO sensíveis. DB_HOST é substituído em tempo de deploy pela
+# pipeline de CI/CD com o endpoint publicado pelo oficina-infra-db no SSM
+# Parameter Store (/oficina/db_endpoint) — ver .github/workflows/ci-cd.yml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oficina-app-config
+  namespace: oficina
+data:
+  NODE_ENV: 'production'
+  PORT: '3000'
+  DB_HOST: '__DB_ENDPOINT__'
+  DB_PORT: '5432'
+  DB_DATABASE: 'oficina'
+  DB_SSL: 'true'
+  JWT_EXPIRES_IN: '1h'
+  SMTP_HOST: 'oficina-mailhog'
+  SMTP_PORT: '1025'
+  SMTP_SECURE: 'false'
+  SMTP_FROM: 'oficina@example.com'
+  DD_TRACE_ENABLED: 'true'
+  DD_ENV: 'production'
+  DD_SERVICE: 'oficina-tech-challenge'

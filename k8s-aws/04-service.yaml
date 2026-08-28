@@ -1,0 +1,21 @@
+# type: LoadBalancer provisiona uma NLB pública (via cloud-provider da AWS no
+# EKS) — é nela que o API Gateway (repositório oficina-lambda-auth ou um novo
+# aws_apigatewayv2_api dedicado às rotas de negócio) faz a integração
+# HTTP_PROXY. Ver docs/adr para o trade-off frente a um Ingress/ALB Controller.
+apiVersion: v1
+kind: Service
+metadata:
+  name: oficina-app
+  namespace: oficina
+  labels:
+    app: oficina-app
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: 'nlb'
+spec:
+  type: LoadBalancer
+  selector:
+    app: oficina-app
+  ports:
+    - port: 80
+      targetPort: 3000
+      protocol: TCP

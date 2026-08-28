@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oficina-app
+  namespace: oficina
+  labels:
+    app: oficina-app
+    tags.datadoghq.com/service: oficina-tech-challenge
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: oficina-app
+  template:
+    metadata:
+      labels:
+        app: oficina-app
+        tags.datadoghq.com/service: oficina-tech-challenge
+        admission.datadoghq.com/enabled: 'true'
+    spec:
+      containers:
+        - name: oficina-app
+          # Substituído em tempo de deploy pela pipeline de CI/CD com a tag
+          # da imagem recém publicada em ghcr.io.
+          image: ghcr.io/OWNER/oficina-tech-challenge:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: oficina-app-config
+            - secretRef:
+                name: oficina-app-secret
+          env:
+            - name: DD_AGENT_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+          resources:
+            requests:
+              cpu: '100m'
+              memory: '128Mi'
+            limits:
+              cpu: '500m'
+              memory: '256Mi'
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 15
