@@ -7,6 +7,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import configuration, { AppConfig } from './config/configuration';
 import { buildTypeOrmOptions } from './config/typeorm.config';
 import { DomainExceptionFilter } from './shared/filters/domain-exception.filter';
+import { NotificationsModule } from './shared/notifications/notifications.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ClientesModule } from './modules/clientes/clientes.module';
 import { VeiculosModule } from './modules/veiculos/veiculos.module';
@@ -24,6 +25,7 @@ import { OrdensServicoModule } from './modules/ordens-servico/ordens-servico.mod
         buildTypeOrmOptions(configService),
     }),
     ThrottlerModule.forRoot({ throttlers: [{ ttl: 60_000, limit: 100 }] }),
+    NotificationsModule,
     AuthModule,
     ClientesModule,
     VeiculosModule,

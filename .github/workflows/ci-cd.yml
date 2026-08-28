@@ -1,0 +1,146 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
+
+jobs:
+  build-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+      - run: npm test -- --coverage
+
+      - name: Publicar relatório de cobertura
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 7
+
+  docker-build-push:
+    name: Build & Push da imagem Docker
+    needs: build-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: meta
+        run: echo "image_tag=${{ env.IMAGE_NAME }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: production
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:latest
+
+  deploy:
+    name: Provisionar cluster, banco e aplicar manifestos
+    needs: docker-build-push
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - uses: helm/kind-action@v1
+        with:
+          install_only: true
+
+      - uses: azure/setup-kubectl@v4
+
+      - name: Gerar segredos efêmeros para este deploy de CI
+        run: |
+          echo "TF_VAR_postgres_password=$(openssl rand -hex 16)" >> "$GITHUB_ENV"
+          echo "JWT_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+
+      # Provisiona o cluster Kubernetes (kind) e o banco de dados (Postgres)
+      # dentro dele — ver /infra/README.md.
+      - name: Terraform init & apply (cluster + banco de dados)
+        working-directory: infra
+        run: |
+          terraform init
+          terraform apply -auto-approve
+
+      - name: Configurar kubectl para o cluster provisionado
+        working-directory: infra
+        run: |
+          echo "KUBECONFIG=$(terraform output -raw kubeconfig_path)" >> "$GITHUB_ENV"
+
+      - name: Criar Secret da aplicação
+        run: |
+          kubectl create namespace oficina --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create secret generic oficina-app-secret -n oficina \
+            --from-literal=DB_USERNAME=oficina \
+            --from-literal=DB_PASSWORD="${TF_VAR_postgres_password}" \
+            --from-literal=JWT_SECRET="${JWT_SECRET}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      # Deploy da aplicação em si — separado do provisionamento de infra acima.
+      - name: Aplicar manifestos Kubernetes da aplicação
+        run: |
+          sed "s#ghcr.io/OWNER/oficina-tech-challenge:latest#${{ needs.docker-build-push.outputs.image_tag }}#" \
+            k8s/03-deployment.yaml > /tmp/03-deployment.yaml
+          kubectl apply -f k8s/00-namespace.yaml
+          kubectl apply -f k8s/01-configmap.yaml
+          kubectl apply -f /tmp/03-deployment.yaml
+          kubectl apply -f k8s/04-service.yaml
+          kubectl apply -f k8s/05-hpa.yaml
+          kubectl apply -f k8s/06-mailhog.yaml
+          kubectl -n oficina rollout status deployment/oficina-app --timeout=180s
+
+      - name: Smoke test — health check e fluxo de autenticação
+        run: |
+          kubectl -n oficina port-forward svc/oficina-app 8080:80 &
+          sleep 5
+          curl --fail http://localhost:8080/health
+
+          kubectl -n oficina run seed-admin --rm -i --restart=Never \
+            --image=${{ needs.docker-build-push.outputs.image_tag }} \
+            --env="DB_HOST=oficina-postgres" --env="DB_PORT=5432" \
+            --env="DB_USERNAME=oficina" --env="DB_PASSWORD=${TF_VAR_postgres_password}" \
+            --env="DB_DATABASE=oficina" --env="ADMIN_EMAIL=ci@oficina.com" \
+            --env="ADMIN_PASSWORD=CiSmokeTest123" -n oficina \
+            -- node dist/seed/seed-admin.js
+
+          curl --fail -X POST http://localhost:8080/auth/login \
+            -H "Content-Type: application/json" \
+            -d '{"email":"ci@oficina.com","senha":"CiSmokeTest123"}'
+
+      - name: Destruir o cluster efêmero de CI
+        if: always()
+        working-directory: infra
+        run: terraform destroy -auto-approve

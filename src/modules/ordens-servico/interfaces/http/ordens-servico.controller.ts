@@ -50,7 +50,15 @@ export class OrdensServicoController {
   @Get()
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: '[Admin] Lista e filtra as Ordens de Serviço' })
+  @ApiOperation({
+    summary: '[Admin] Lista e filtra as Ordens de Serviço',
+    description:
+      'Sem o parâmetro "status": aplica a listagem operacional padrão — oculta OS ' +
+      'finalizadas/entregues (exclusão lógica) e ordena por prioridade (Em Execução > ' +
+      'Aguardando Aprovação > Em Diagnóstico > Recebida, mais antigas primeiro). ' +
+      'Com "status" informado: filtra exatamente por esse status (permite consultar o ' +
+      'histórico de OS finalizadas/entregues), ordenado pelas mais antigas primeiro.',
+  })
   async listar(@Query() query: ListarOrdensServicoQueryDto) {
     const resultado = await this.ordensServicoService.listar({
       status: query.status,

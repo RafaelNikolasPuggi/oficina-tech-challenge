@@ -1,0 +1,18 @@
+# Variáveis NÃO sensíveis da aplicação. Valores sensíveis (senhas, segredo do
+# JWT) ficam em 02-secret.yaml — nunca aqui.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oficina-app-config
+  namespace: oficina
+data:
+  NODE_ENV: 'production'
+  PORT: '3000'
+  DB_HOST: 'oficina-postgres' # Service do Postgres provisionado pelo Terraform (ver /infra)
+  DB_PORT: '5432'
+  DB_DATABASE: 'oficina'
+  JWT_EXPIRES_IN: '1h'
+  SMTP_HOST: 'oficina-mailhog'
+  SMTP_PORT: '1025'
+  SMTP_SECURE: 'false'
+  SMTP_FROM: 'oficina@example.com'

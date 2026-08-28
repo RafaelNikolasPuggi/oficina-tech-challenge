@@ -1,19 +1,21 @@
 # Oficina Mecânica — Sistema Integrado de Atendimento e Execução de Serviços
 
-Tech Challenge — Fase 1 (POS TECH / SOAT). MVP do back-end responsável pela gestão de
-clientes, veículos, catálogo de serviços/peças e ordens de serviço (OS) de uma oficina
-mecânica, aplicando **Domain-Driven Design**, arquitetura em camadas, autenticação JWT
-e testes automatizados.
+Tech Challenge (POS TECH / SOAT) — **Fase 1 + Fase 2**. Back-end de gestão de clientes,
+veículos, catálogo de serviços/peças e ordens de serviço (OS) de uma oficina mecânica,
+aplicando **Domain-Driven Design**/Arquitetura Hexagonal, autenticação JWT, testes
+automatizados, containerização, Kubernetes, Terraform e CI/CD.
 
-## Objetivo desta fase
+## Objetivo
 
 Substituir o controle manual (planilhas/anotações) por um sistema único que permita:
 
 - Abrir uma OS identificando cliente (CPF/CNPJ) e veículo, com os serviços/peças solicitados.
 - Acompanhar o status da OS em tempo real (`Recebida → Em diagnóstico → Aguardando aprovação → Em execução → Finalizada → Entregue`, com `Recusada` como desfecho alternativo).
-- Gerar o orçamento automaticamente e permitir que o cliente aprove ou recuse.
+- Gerar o orçamento automaticamente, notificar o cliente por e-mail e permitir que ele aprove ou recuse.
 - Gerir o catálogo de clientes, veículos, serviços e peças, com controle de estoque.
 - Medir o tempo médio de execução das OS finalizadas.
+- **(Fase 2)** Suportar picos de demanda com escalabilidade dinâmica (HPA), com
+  provisionamento e deploy automatizados (Terraform + CI/CD).
 
 ## Stack e justificativas técnicas
 
@@ -25,11 +27,16 @@ Substituir o controle manual (planilhas/anotações) por um sistema único que p
 | **class-validator** | Validação declarativa dos DTOs, incluindo validadores customizados de CPF/CNPJ (dígito verificador) e placa (formato antigo e Mercosul). |
 | **Swagger (`@nestjs/swagger`)** | Documentação OpenAPI gerada a partir do próprio código, sempre atualizada. |
 | **Jest + Supertest** | Testes unitários (domínio/aplicação) e de integração (e2e, contra Postgres real). |
+| **Nodemailer + Mailhog** | Notificação por e-mail das mudanças de status da OS; Mailhog captura os e-mails localmente/CI sem precisar de conta SMTP real. |
+| **Kubernetes + Terraform (Fase 2)** | Escalabilidade dinâmica (HPA) e infraestrutura versionada/reprodutível; cluster local (kind) para não depender de custo de nuvem — ver [`docs/architecture.md`](docs/architecture.md). |
+| **GitHub Actions (Fase 2)** | Pipeline única cobrindo build, testes, build/push da imagem, provisionamento (Terraform) e deploy (kubectl) — sem exigir conta de nuvem. |
 
 ## Arquitetura
 
-O projeto é um **monolito em arquitetura de camadas**, organizado por módulo (bounded
-context). Cada módulo de negócio segue a mesma separação:
+O projeto é um **monolito em Arquitetura Hexagonal (Ports & Adapters)**, organizado por
+módulo (bounded context) — ver [`docs/architecture.md`](docs/architecture.md) para o
+mapeamento completo das camadas e o diagrama de componentes. Resumo da estrutura de
+pastas, repetida em cada módulo de negócio:
 
 ```
 src/
@@ -106,7 +113,8 @@ docker-compose up --build
 ```
 
 A aplicação sobe em `http://localhost:3000`, com o Postgres em `localhost:5432`.
-Documentação interativa (Swagger) em **http://localhost:3000/docs**.
+Documentação interativa (Swagger) em **http://localhost:3000/docs**; e-mails de
+notificação capturados pelo Mailhog em **http://localhost:8025**.
 
 Crie o usuário administrativo inicial (necessário para obter um JWT). O script de seed
 roda localmente via `ts-node`, apontando para o Postgres exposto pelo compose na porta
@@ -127,9 +135,11 @@ npm run seed:admin     # cria o usuário administrativo inicial
 npm run start:dev
 ```
 
-A aplicação usa `synchronize: true` fora de produção — o schema é criado
-automaticamente a partir das entidades na primeira execução, sem necessidade de rodar
-migrations manualmente.
+A aplicação usa `synchronize: true` por padrão (não há migrations neste MVP) — o schema
+é criado automaticamente a partir das entidades na primeira execução. Controlado pela
+flag `TYPEORM_SYNCHRONIZE` (não por `NODE_ENV`, já que o deploy em Kubernetes também
+roda com `NODE_ENV=production` e ainda depende do synchronize); defina
+`TYPEORM_SYNCHRONIZE=false` somente depois de introduzir migrations reais.
 
 ### Autenticando
 
@@ -158,8 +168,11 @@ acima do mínimo de 80% exigido.
 
 - [`docs/ddd/`](docs/ddd) — Event Storming (fluxos de criação/acompanhamento da OS e
   gestão de peças/insumos) e Linguagem Ubíqua.
+- [`docs/architecture.md`](docs/architecture.md) — Arquitetura Hexagonal (mapeamento de
+  camadas) e fluxo de deploy (Fase 2).
 - [`docs/security/vulnerability-report.md`](docs/security/vulnerability-report.md) —
   relatório de análise de vulnerabilidades (`npm audit` + práticas adotadas).
+- [`infra/README.md`](infra/README.md) — o que o Terraform provisiona e como aplicar.
 - Swagger: `/docs` na aplicação em execução.
 
 ## Principais endpoints
@@ -173,7 +186,7 @@ acima do mínimo de 80% exigido.
 | POST/GET/PATCH/DELETE | `/pecas[/:id]` | JWT | CRUD do catálogo de peças + estoque |
 | PATCH | `/pecas/:id/estoque` | JWT | Ajuste manual de estoque |
 | POST | `/ordens-servico` | JWT | Abre uma nova OS |
-| GET | `/ordens-servico` | JWT | Lista/filtra OS por status (paginado) |
+| GET | `/ordens-servico` | JWT | Lista OS (paginado) — ver comportamento abaixo |
 | GET | `/ordens-servico/:id` | JWT | Detalhamento completo da OS |
 | PATCH | `/ordens-servico/:id/iniciar-diagnostico` | JWT | Inicia o diagnóstico |
 | PATCH | `/ordens-servico/:id/diagnostico` | JWT | Registra diagnóstico e gera orçamento |
@@ -185,10 +198,61 @@ acima do mínimo de 80% exigido.
 
 \* validado por CPF/CNPJ do cliente dono da OS, não por JWT — ver seção Segurança.
 
+**Comportamento de `GET /ordens-servico` (Fase 2):** sem o parâmetro `status`, aplica a
+listagem operacional — oculta OS `Finalizada`/`Entregue` (exclusão lógica) e ordena por
+prioridade: `Em Execução > Aguardando Aprovação > Em Diagnóstico > Recebida`, mais
+antigas primeiro dentro de cada grupo. Com `status` informado, filtra exatamente por
+ele (permite consultar o histórico de OS finalizadas/entregues).
+
+**Notificação por e-mail (Fase 2):** a cada mudança de status, o cliente recebe um
+e-mail (Nodemailer). Localmente/CI isso é capturado pelo Mailhog — UI em
+`http://localhost:8025` — sem precisar de conta de e-mail real; uma falha no envio
+nunca reverte a transição de status já persistida.
+
 Especificação completa e testável: `/docs` (Swagger UI) na aplicação em execução.
+
+## Kubernetes, Terraform e CI/CD (Fase 2)
+
+Visão geral do fluxo completo, diagramas e decisões em
+[`docs/architecture.md`](docs/architecture.md#fluxo-de-deploy-fase-2).
+
+### Provisionar a infraestrutura (Terraform)
+
+Cria o cluster Kubernetes local (kind) e o banco de dados (Postgres) dentro dele —
+detalhes e recursos criados em [`infra/README.md`](infra/README.md).
+
+```bash
+cd infra
+terraform init
+terraform apply
+export KUBECONFIG=$(terraform output -raw kubeconfig_path)
+```
+
+### Deploy da aplicação (Kubernetes)
+
+```bash
+kubectl apply -f k8s/00-namespace.yaml -f k8s/01-configmap.yaml -f k8s/04-service.yaml -f k8s/05-hpa.yaml -f k8s/06-mailhog.yaml
+kubectl create secret generic oficina-app-secret -n oficina \
+  --from-literal=DB_USERNAME=oficina --from-literal=DB_PASSWORD=oficina \
+  --from-literal=JWT_SECRET='<segredo-forte>'
+kubectl apply -f k8s/03-deployment.yaml   # ajuste a imagem antes, ver comentário no arquivo
+kubectl -n oficina rollout status deployment/oficina-app
+```
+
+Manifestos completos e o porquê de cada um: [`/k8s`](k8s). Nunca commite
+`k8s/02-secret.yaml` com valores reais — use `k8s/02-secret.yaml.example` como
+referência (já ignorado pelo git).
+
+### CI/CD (GitHub Actions)
+
+[`/.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml) executa, a cada push na
+`main`: build → lint → testes → build/push da imagem (`ghcr.io`) → `terraform apply`
+(cluster + banco) → `kubectl apply` dos manifestos → smoke test (`/health` +
+`/auth/login`) → `terraform destroy` do cluster efêmero de CI. Não exige nenhuma conta
+de nuvem nem secret configurado manualmente — os segredos usados no cluster efêmero de
+CI são gerados aleatoriamente a cada execução.
 
 ## Limitações conhecidas / próximos passos
 
-Este é o MVP da Fase 1. Escalabilidade dinâmica, Kubernetes, Terraform, API Gateway,
-autenticação serverless e observabilidade avançada são objeto das fases seguintes do
-Tech Challenge.
+API Gateway, autenticação serverless, banco gerenciado em nuvem e observabilidade
+avançada (Datadog/New Relic) são objeto da Fase 3 do Tech Challenge.

@@ -17,6 +17,14 @@ services:
       timeout: 5s
       retries: 10
 
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: oficina-mailhog
+    restart: unless-stopped
+    ports:
+      - '1025:1025' # SMTP
+      - '8025:8025' # Web UI (visualizar os e-mails enviados)
+
   app:
     build:
       context: .
@@ -26,6 +34,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      mailhog:
+        condition: service_started
     environment:
       NODE_ENV: production
       PORT: 3000
@@ -36,6 +46,10 @@ services:
       DB_DATABASE: ${DB_DATABASE:-oficina}
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      SMTP_SECURE: 'false'
+      SMTP_FROM: ${SMTP_FROM:-oficina@example.com}
     ports:
       - '${PORT:-3000}:3000'
 

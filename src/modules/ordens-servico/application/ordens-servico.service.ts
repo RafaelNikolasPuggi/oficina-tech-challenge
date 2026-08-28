@@ -7,6 +7,7 @@ import {
   InsufficientStockException,
 } from '../../../shared/domain/exceptions';
 import { PaginatedResult } from '../../../shared/dto/pagination.dto';
+import { EmailService } from '../../../shared/notifications/email.service';
 import { CLIENTE_REPOSITORY } from '../../clientes/domain/cliente.repository';
 import type { ClienteRepository } from '../../clientes/domain/cliente.repository';
 import { PECA_REPOSITORY } from '../../pecas/domain/peca.repository';
@@ -59,6 +60,7 @@ export class OrdensServicoService {
     private readonly servicoRepository: ServicoRepository,
     @Inject(PECA_REPOSITORY)
     private readonly pecaRepository: PecaRepository,
+    private readonly emailService: EmailService,
   ) {}
 
   async abrir(input: CriarOrdemServicoInput): Promise<OrdemServico> {
@@ -90,7 +92,12 @@ export class OrdensServicoService {
   async iniciarDiagnostico(id: string): Promise<OrdemServico> {
     const ordemServico = await this.obter(id);
     ordemServico.iniciarDiagnostico();
-    return this.ordemServicoRepository.salvar(ordemServico);
+    const salva = await this.ordemServicoRepository.salvar(ordemServico);
+    await this.notificarClienteSobreStatus(
+      salva,
+      'Iniciamos o diagnóstico do seu veículo.',
+    );
+    return salva;
   }
 
   async registrarDiagnostico(
@@ -110,7 +117,12 @@ export class OrdensServicoService {
       itensPecaAdicionais: pecasAdicionais,
     });
 
-    return this.ordemServicoRepository.salvar(ordemServico);
+    const salva = await this.ordemServicoRepository.salvar(ordemServico);
+    await this.notificarClienteSobreStatus(
+      salva,
+      `O orçamento da sua OS está pronto: R$ ${salva.getValorTotal().toFixed(2)}. Acesse a consulta de status para aprovar ou recusar.`,
+    );
+    return salva;
   }
 
   async aprovarOrcamento(
@@ -134,7 +146,12 @@ export class OrdensServicoService {
       );
     }
 
-    return this.ordemServicoRepository.salvar(ordemServico);
+    const salva = await this.ordemServicoRepository.salvar(ordemServico);
+    await this.notificarClienteSobreStatus(
+      salva,
+      'Orçamento aprovado! Seu veículo entrou em execução.',
+    );
+    return salva;
   }
 
   async recusarOrcamento(
@@ -146,19 +163,34 @@ export class OrdensServicoService {
       documentoCliente,
     );
     ordemServico.recusarOrcamento();
-    return this.ordemServicoRepository.salvar(ordemServico);
+    const salva = await this.ordemServicoRepository.salvar(ordemServico);
+    await this.notificarClienteSobreStatus(
+      salva,
+      'Recebemos a recusa do orçamento da sua OS.',
+    );
+    return salva;
   }
 
   async finalizar(id: string): Promise<OrdemServico> {
     const ordemServico = await this.obter(id);
     ordemServico.finalizar();
-    return this.ordemServicoRepository.salvar(ordemServico);
+    const salva = await this.ordemServicoRepository.salvar(ordemServico);
+    await this.notificarClienteSobreStatus(
+      salva,
+      'Seu veículo está pronto! A execução dos serviços foi finalizada.',
+    );
+    return salva;
   }
 
   async entregar(id: string): Promise<OrdemServico> {
     const ordemServico = await this.obter(id);
     ordemServico.entregar();
-    return this.ordemServicoRepository.salvar(ordemServico);
+    const salva = await this.ordemServicoRepository.salvar(ordemServico);
+    await this.notificarClienteSobreStatus(
+      salva,
+      'Veículo entregue. Obrigado por confiar na nossa oficina!',
+    );
+    return salva;
   }
 
   async obter(id: string): Promise<OrdemServico> {
@@ -201,6 +233,27 @@ export class OrdensServicoService {
       quantidadeOSFinalizadas: finalizadas.length,
       tempoMedioMinutos: Math.round(media),
     };
+  }
+
+  /**
+   * Notifica o cliente sobre a mudança de status via e-mail (requisito de
+   * "atualização de status via ferramenta como e-mail"). Nunca lança: uma
+   * falha no envio não pode reverter uma transição de status já persistida.
+   */
+  private async notificarClienteSobreStatus(
+    ordemServico: OrdemServico,
+    mensagem: string,
+  ): Promise<void> {
+    const cliente = await this.clienteRepository.buscarPorId(
+      ordemServico.getClienteId(),
+    );
+    if (!cliente?.getEmail()) return;
+
+    await this.emailService.enviarAtualizacaoDeStatus(
+      cliente.getEmail(),
+      `Atualização da sua Ordem de Serviço #${ordemServico.id.slice(0, 8)}`,
+      mensagem,
+    );
   }
 
   private async obterValidandoDocumento(

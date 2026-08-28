@@ -15,7 +15,11 @@ export function buildTypeOrmOptions(
     password: db.password,
     database: db.database,
     autoLoadEntities: true,
-    synchronize: process.env.NODE_ENV !== 'production',
+    // Não há migrations neste MVP — o schema é sincronizado a partir das
+    // entidades. Controlado por flag explícita (não por NODE_ENV) porque o
+    // deploy em Kubernetes também roda com NODE_ENV=production e ainda
+    // depende do synchronize até que migrations sejam introduzidas.
+    synchronize: process.env.TYPEORM_SYNCHRONIZE !== 'false',
     logging: process.env.TYPEORM_LOGGING === 'true',
   };
 }

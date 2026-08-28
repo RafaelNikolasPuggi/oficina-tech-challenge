@@ -54,6 +54,7 @@ describe('OrdensServicoService', () => {
   let veiculoRepository: jest.Mocked<VeiculoRepository>;
   let servicoRepository: jest.Mocked<ServicoRepository>;
   let pecaRepository: jest.Mocked<PecaRepository>;
+  let emailService: { enviarAtualizacaoDeStatus: jest.Mock };
   let service: OrdensServicoService;
 
   beforeEach(() => {
@@ -94,12 +95,17 @@ describe('OrdensServicoService', () => {
       decrementarEstoqueTransacional: jest.fn(),
     };
 
+    emailService = {
+      enviarAtualizacaoDeStatus: jest.fn().mockResolvedValue(undefined),
+    };
+
     service = new OrdensServicoService(
       ordemServicoRepository,
       clienteRepository,
       veiculoRepository,
       servicoRepository,
       pecaRepository,
+      emailService as never,
     );
   });
 
@@ -360,6 +366,52 @@ describe('OrdensServicoService', () => {
         page: 1,
         limit: 20,
       });
+    });
+  });
+
+  describe('notificação por e-mail ao cliente', () => {
+    function osEmDiagnostico(): OrdemServico {
+      const os = OrdemServico.abrir({
+        id: 'os-1',
+        clienteId: cliente.id,
+        veiculoId: veiculo.id,
+        itensServico: [],
+        itensPeca: [],
+      });
+      os.iniciarDiagnostico();
+      return os;
+    }
+
+    it('envia e-mail ao registrar o diagnóstico', async () => {
+      const os = osEmDiagnostico();
+      ordemServicoRepository.buscarPorId.mockResolvedValueOnce(os);
+
+      await service.registrarDiagnostico('os-1', {
+        observacao: 'ok',
+        servicosAdicionais: [],
+        pecasAdicionais: [],
+      });
+
+      expect(emailService.enviarAtualizacaoDeStatus).toHaveBeenCalledWith(
+        cliente.getEmail(),
+        expect.stringContaining(os.id.slice(0, 8)),
+        expect.any(String),
+      );
+    });
+
+    it('não lança erro quando o cliente não é encontrado ao notificar', async () => {
+      const os = osEmDiagnostico();
+      ordemServicoRepository.buscarPorId.mockResolvedValueOnce(os);
+      clienteRepository.buscarPorId.mockResolvedValueOnce(null);
+
+      await expect(
+        service.registrarDiagnostico('os-1', {
+          observacao: 'ok',
+          servicosAdicionais: [],
+          pecasAdicionais: [],
+        }),
+      ).resolves.toBeDefined();
+      expect(emailService.enviarAtualizacaoDeStatus).not.toHaveBeenCalled();
     });
   });
 

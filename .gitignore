@@ -5,6 +5,12 @@ coverage
 .env
 .env.local
 
+k8s/02-secret.yaml
+infra/*.tfstate
+infra/*.tfstate.backup
+infra/.terraform/
+infra/kubeconfig*
+
 *.log
 npm-debug.log*
 
