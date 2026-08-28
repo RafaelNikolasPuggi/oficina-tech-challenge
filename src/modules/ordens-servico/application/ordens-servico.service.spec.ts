@@ -196,10 +196,7 @@ describe('OrdensServicoService', () => {
       const os = osAguardandoAprovacao();
       ordemServicoRepository.buscarPorId.mockResolvedValueOnce(os);
 
-      const resultado = await service.aprovarOrcamento(
-        'os-1',
-        '111.444.777-35',
-      );
+      const resultado = await service.aprovarOrcamento('os-1', cliente.id);
 
       expect(resultado.getStatus()).toBe(StatusOrdemServico.EM_EXECUCAO);
       expect(
@@ -207,12 +204,12 @@ describe('OrdensServicoService', () => {
       ).toHaveBeenCalledWith([{ pecaId: peca.id, quantidade: 2 }]);
     });
 
-    it('lança EntityNotFoundException quando o documento informado não é o dono da OS', async () => {
+    it('lança EntityNotFoundException quando o cliente autenticado não é o dono da OS', async () => {
       const os = osAguardandoAprovacao();
       ordemServicoRepository.buscarPorId.mockResolvedValueOnce(os);
 
       await expect(
-        service.aprovarOrcamento('os-1', '529.982.247-25'),
+        service.aprovarOrcamento('os-1', 'outro-cliente-id'),
       ).rejects.toThrow(EntityNotFoundException);
       expect(
         pecaRepository.decrementarEstoqueTransacional,
@@ -296,10 +293,7 @@ describe('OrdensServicoService', () => {
       });
       ordemServicoRepository.buscarPorId.mockResolvedValueOnce(os);
 
-      const resultado = await service.recusarOrcamento(
-        'os-1',
-        '111.444.777-35',
-      );
+      const resultado = await service.recusarOrcamento('os-1', cliente.id);
 
       expect(resultado.getStatus()).toBe(StatusOrdemServico.RECUSADA);
     });
@@ -337,7 +331,7 @@ describe('OrdensServicoService', () => {
       );
     });
 
-    it('consultarStatus devolve a OS quando o documento confere', async () => {
+    it('consultarStatus devolve a OS quando o cliente autenticado é o dono', async () => {
       const os = OrdemServico.abrir({
         id: 'os-1',
         clienteId: cliente.id,
@@ -347,7 +341,7 @@ describe('OrdensServicoService', () => {
       });
       ordemServicoRepository.buscarPorId.mockResolvedValueOnce(os);
 
-      const resultado = await service.consultarStatus('os-1', '111.444.777-35');
+      const resultado = await service.consultarStatus('os-1', cliente.id);
 
       expect(resultado.id).toBe('os-1');
     });

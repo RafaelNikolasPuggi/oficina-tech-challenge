@@ -1,5 +1,6 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import * as bcrypt from 'bcrypt';
 import { randomUUID } from 'crypto';
@@ -14,6 +15,7 @@ import { gerarCpf, gerarPlaca } from './utils/gerar-cpf';
 describe('Fluxo completo de Ordem de Serviço (e2e)', () => {
   let app: INestApplication<App>;
   let jwt: string;
+  let jwtService: JwtService;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -30,6 +32,8 @@ describe('Fluxo completo de Ordem de Serviço (e2e)', () => {
     );
     app.useGlobalFilters(new DomainExceptionFilter());
     await app.init();
+
+    jwtService = app.get(JwtService);
 
     const usuarioRepo = app.get<Repository<UsuarioOrmEntity>>(
       getRepositoryToken(UsuarioOrmEntity),
@@ -55,19 +59,38 @@ describe('Fluxo completo de Ordem de Serviço (e2e)', () => {
     await app.close();
   });
 
+  /** Simula o token que a Lambda `oficina-lambda-auth` (Fase 3) emitiria. */
+  function tokenCliente(clienteId: string, documento: string): string {
+    return jwtService.sign({ sub: clienteId, documento, tipo: 'cliente' });
+  }
+
   it('rejeita acesso a rota administrativa sem token', async () => {
     await request(app.getHttpServer()).get('/clientes').expect(401);
   });
 
+  it('rejeita acesso às rotas do cliente sem token', async () => {
+    await request(app.getHttpServer())
+      .get('/ordens-servico/qualquer-id/status')
+      .expect(401);
+  });
+
+  it('rejeita acesso às rotas do cliente com token administrativo', async () => {
+    await request(app.getHttpServer())
+      .get('/ordens-servico/qualquer-id/status')
+      .set('Authorization', `Bearer ${jwt}`)
+      .expect(401);
+  });
+
   it('percorre o ciclo de vida completo: abertura -> diagnóstico -> aprovação -> execução -> entrega', async () => {
     const auth = { Authorization: `Bearer ${jwt}` };
+    const documentoCliente = gerarCpf();
 
     const cliente = await request(app.getHttpServer())
       .post('/clientes')
       .set(auth)
       .send({
         nome: 'Cliente E2E',
-        documento: gerarCpf(),
+        documento: documentoCliente,
         email: 'cliente.e2e@email.com',
         telefone: '11999990000',
       })
@@ -138,18 +161,21 @@ describe('Fluxo completo de Ordem de Serviço (e2e)', () => {
       .expect(200)
       .expect((res) => expect(res.body.status).toBe('AGUARDANDO_APROVACAO'));
 
-    // rota pública do cliente: consulta de status por CPF
-    const clienteDocumento = cliente.body.documento;
+    // rota do cliente: autenticado via JWT emitido pela Lambda de CPF (Fase 3)
+    const authCliente = {
+      Authorization: `Bearer ${tokenCliente(cliente.body.id, documentoCliente)}`,
+    };
     await request(app.getHttpServer())
       .get(`/ordens-servico/${os.body.id}/status`)
-      .query({ documento: clienteDocumento })
+      .set(authCliente)
       .expect(200)
       .expect((res) => expect(res.body.status).toBe('AGUARDANDO_APROVACAO'));
 
-    // aprovação pública do orçamento -> deve baixar o estoque da peça
+    // aprovação pelo cliente -> deve baixar o estoque da peça
     await request(app.getHttpServer())
       .post(`/ordens-servico/${os.body.id}/aprovacao`)
-      .send({ documento: clienteDocumento, aprovado: true })
+      .set(authCliente)
+      .send({ aprovado: true })
       .expect(201)
       .expect((res) => expect(res.body.status).toBe('EM_EXECUCAO'));
 
@@ -172,7 +198,7 @@ describe('Fluxo completo de Ordem de Serviço (e2e)', () => {
       .expect((res) => expect(res.body.status).toBe('ENTREGUE'));
   });
 
-  it('rejeita a aprovação do orçamento quando o documento informado não confere', async () => {
+  it('rejeita a aprovação do orçamento quando o cliente autenticado não é o dono da OS', async () => {
     const auth = { Authorization: `Bearer ${jwt}` };
 
     const cliente = await request(app.getHttpServer())
@@ -228,9 +254,11 @@ describe('Fluxo completo de Ordem de Serviço (e2e)', () => {
       .send({ observacao: 'ok', servicosAdicionais: [], pecasAdicionais: [] })
       .expect(200);
 
+    const tokenDeOutroCliente = tokenCliente(randomUUID(), gerarCpf());
     await request(app.getHttpServer())
       .post(`/ordens-servico/${os.body.id}/aprovacao`)
-      .send({ documento: gerarCpf(), aprovado: true })
+      .set('Authorization', `Bearer ${tokenDeOutroCliente}`)
+      .send({ aprovado: true })
       .expect(404);
   });
 

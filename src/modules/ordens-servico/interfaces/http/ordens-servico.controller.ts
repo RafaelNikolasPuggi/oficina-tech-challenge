@@ -8,13 +8,10 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiQuery,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
+import { ClienteAtual } from '../../../auth/decorators/cliente-atual.decorator';
+import { ClienteAuthGuard } from '../../../auth/guards/cliente-auth.guard';
 import { JwtAuthGuard } from '../../../auth/guards/jwt-auth.guard';
 import {
   OrdensServicoService,
@@ -146,35 +143,44 @@ export class OrdensServicoController {
   }
 
   @Get(':id/status')
+  @ApiBearerAuth()
+  @UseGuards(ClienteAuthGuard)
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
-  @ApiQuery({ name: 'documento', required: true, example: '123.456.789-09' })
   @ApiOperation({
-    summary:
-      '[Cliente] Consulta o status da OS mediante confirmação do CPF/CNPJ',
+    summary: '[Cliente] Consulta o status da OS',
+    description:
+      'Requer o JWT emitido pela Lambda de autenticação por CPF (repositório ' +
+      'oficina-lambda-auth, Fase 3) — POST {api_endpoint}/auth/cliente.',
   })
   async consultarStatus(
     @Param('id') id: string,
-    @Query('documento') documento: string,
+    @ClienteAtual() clienteId: string,
   ): Promise<OrdemServicoResponseDto> {
     const ordemServico = await this.ordensServicoService.consultarStatus(
       id,
-      documento,
+      clienteId,
     );
     return OrdemServicoResponseDto.fromDomain(ordemServico);
   }
 
   @Post(':id/aprovacao')
+  @ApiBearerAuth()
+  @UseGuards(ClienteAuthGuard)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({
     summary: '[Cliente] Aprova ou recusa o orçamento gerado no diagnóstico',
+    description:
+      'Requer o JWT emitido pela Lambda de autenticação por CPF (repositório ' +
+      'oficina-lambda-auth, Fase 3) — POST {api_endpoint}/auth/cliente.',
   })
   async decidirOrcamento(
     @Param('id') id: string,
+    @ClienteAtual() clienteId: string,
     @Body() dto: AprovacaoOrcamentoDto,
   ): Promise<OrdemServicoResponseDto> {
     const ordemServico = dto.aprovado
-      ? await this.ordensServicoService.aprovarOrcamento(id, dto.documento)
-      : await this.ordensServicoService.recusarOrcamento(id, dto.documento);
+      ? await this.ordensServicoService.aprovarOrcamento(id, clienteId)
+      : await this.ordensServicoService.recusarOrcamento(id, clienteId);
     return OrdemServicoResponseDto.fromDomain(ordemServico);
   }
 }

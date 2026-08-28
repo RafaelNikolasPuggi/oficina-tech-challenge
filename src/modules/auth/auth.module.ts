@@ -10,7 +10,9 @@ import { UsuarioOrmEntity } from './infrastructure/usuario.orm-entity';
 import { TypeOrmUsuarioRepository } from './infrastructure/usuario.repository.impl';
 import { AuthController } from './interfaces/http/auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { ClienteJwtStrategy } from './strategies/cliente-jwt.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { ClienteAuthGuard } from './guards/cliente-auth.guard';
 
 @Module({
   imports: [
@@ -32,9 +34,11 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
   providers: [
     AuthService,
     JwtStrategy,
+    ClienteJwtStrategy,
     JwtAuthGuard,
+    ClienteAuthGuard,
     { provide: USUARIO_REPOSITORY, useClass: TypeOrmUsuarioRepository },
   ],
-  exports: [JwtAuthGuard, JwtModule],
+  exports: [JwtAuthGuard, ClienteAuthGuard, JwtModule],
 })
 export class AuthModule {}

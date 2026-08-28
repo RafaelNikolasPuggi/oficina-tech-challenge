@@ -1,6 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { CpfCnpj } from '../../../shared/domain/cpf-cnpj.vo';
 import {
   DomainException,
   EntityNotFoundException,
@@ -125,14 +124,8 @@ export class OrdensServicoService {
     return salva;
   }
 
-  async aprovarOrcamento(
-    id: string,
-    documentoCliente: string,
-  ): Promise<OrdemServico> {
-    const ordemServico = await this.obterValidandoDocumento(
-      id,
-      documentoCliente,
-    );
+  async aprovarOrcamento(id: string, clienteId: string): Promise<OrdemServico> {
+    const ordemServico = await this.obterValidandoCliente(id, clienteId);
 
     ordemServico.aprovarOrcamento();
 
@@ -154,14 +147,8 @@ export class OrdensServicoService {
     return salva;
   }
 
-  async recusarOrcamento(
-    id: string,
-    documentoCliente: string,
-  ): Promise<OrdemServico> {
-    const ordemServico = await this.obterValidandoDocumento(
-      id,
-      documentoCliente,
-    );
+  async recusarOrcamento(id: string, clienteId: string): Promise<OrdemServico> {
+    const ordemServico = await this.obterValidandoCliente(id, clienteId);
     ordemServico.recusarOrcamento();
     const salva = await this.ordemServicoRepository.salvar(ordemServico);
     await this.notificarClienteSobreStatus(
@@ -201,12 +188,9 @@ export class OrdensServicoService {
     return ordemServico;
   }
 
-  /** Consulta usada pelas rotas públicas do cliente: exige o CPF/CNPJ do dono da OS. */
-  async consultarStatus(
-    id: string,
-    documentoCliente: string,
-  ): Promise<OrdemServico> {
-    return this.obterValidandoDocumento(id, documentoCliente);
+  /** Consulta usada pela rota do cliente (autenticado via JWT emitido pela Lambda de CPF). */
+  async consultarStatus(id: string, clienteId: string): Promise<OrdemServico> {
+    return this.obterValidandoCliente(id, clienteId);
   }
 
   async listar(
@@ -256,22 +240,16 @@ export class OrdensServicoService {
     );
   }
 
-  private async obterValidandoDocumento(
+  /** Garante que a OS pertence ao cliente autenticado (clienteId vem do JWT). */
+  private async obterValidandoCliente(
     id: string,
-    documentoCliente: string,
+    clienteId: string,
   ): Promise<OrdemServico> {
     const ordemServico = await this.obter(id);
-    const cliente = await this.clienteRepository.buscarPorId(
-      ordemServico.getClienteId(),
-    );
-    if (!cliente)
-      throw new EntityNotFoundException('Cliente', ordemServico.getClienteId());
-
-    const documentoInformado = CpfCnpj.criar(documentoCliente);
-    if (!cliente.getDocumento().equals(documentoInformado)) {
+    if (ordemServico.getClienteId() !== clienteId) {
+      // 404 (não 403): não revela a um cliente que uma OS de outro cliente existe.
       throw new EntityNotFoundException('Ordem de Serviço', id);
     }
-
     return ordemServico;
   }
 
