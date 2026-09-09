@@ -117,6 +117,11 @@ jobs:
             --docker-username="${{ github.actor }}" \
             --docker-password="${{ secrets.GITHUB_TOKEN }}" \
             --dry-run=client -o yaml | kubectl apply -f -
+          # kubectl run (usado no smoke test) não aceita imagePullSecrets por
+          # flag — associar à ServiceAccount default cobre qualquer pod criado
+          # no namespace, incluindo o do Deployment.
+          kubectl patch serviceaccount default -n oficina \
+            -p '{"imagePullSecrets": [{"name": "ghcr-pull-secret"}]}'
 
       # Deploy da aplicação em si — separado do provisionamento de infra acima.
       - name: Aplicar manifestos Kubernetes da aplicação
@@ -207,6 +212,8 @@ jobs:
             --docker-username="${{ github.actor }}" \
             --docker-password="${{ secrets.GITHUB_TOKEN }}" \
             --dry-run=client -o yaml | kubectl apply -f -
+          kubectl patch serviceaccount default -n oficina \
+            -p '{"imagePullSecrets": [{"name": "ghcr-pull-secret"}]}'
           if [ -n "${{ secrets.DD_API_KEY }}" ]; then
             kubectl create secret generic datadog-secret -n oficina \
               --from-literal=api-key="${{ secrets.DD_API_KEY }}" \
