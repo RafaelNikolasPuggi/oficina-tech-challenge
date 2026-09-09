@@ -15,6 +15,11 @@ spec:
       labels:
         app: oficina-app
     spec:
+      # A imagem em ghcr.io é privada (herda a visibilidade do repositório) —
+      # sem isso o pull falha com ImagePullBackOff. Secret criado pela
+      # pipeline de CI/CD a partir do GITHUB_TOKEN, ver ci-cd.yml.
+      imagePullSecrets:
+        - name: ghcr-pull-secret
       containers:
         - name: oficina-app
           # Substituído em tempo de deploy pela pipeline de CI/CD
