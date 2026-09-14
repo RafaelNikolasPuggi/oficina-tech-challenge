@@ -19,6 +19,7 @@ seção [Fase 3](#fase-3--operação-corporativa-nuvem-real-4-repositórios) aba
 - **API + Swagger**: http://ae65deff85359470e8d2de969410d562-2eac41316cad19f3.elb.us-east-1.amazonaws.com/docs
 - **Health check**: http://ae65deff85359470e8d2de969410d562-2eac41316cad19f3.elb.us-east-1.amazonaws.com/health
 - **Login do cliente por CPF (Function Serverless)**: `POST https://wq5yeux4ge.execute-api.us-east-1.amazonaws.com/auth/cliente` — ver [`oficina-lambda-auth`](https://github.com/RafaelNikolasPuggi/oficina-lambda-auth).
+- **Dashboard de monitoramento (New Relic)**: https://one.newrelic.com/dashboards/detail/ODUxMDQ0MnxWSVp8REFTSEJPQVJEfGRhOjEzMTcwMjQ1?account=8510442 — ver [`docs/observability.md`](docs/observability.md).
 
 ## Objetivo
 

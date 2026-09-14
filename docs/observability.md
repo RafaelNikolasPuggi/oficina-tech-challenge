@@ -12,7 +12,10 @@
 
 ## Dashboards
 
-Dashboard "Oficina Tech Challenge — Operação", com 4 widgets:
+Dashboard "FIAP" no New Relic:
+https://one.newrelic.com/dashboards/detail/ODUxMDQ0MnxWSVp8REFTSEJPQVJEfGRhOjEzMTcwMjQ1?account=8510442
+
+4 widgets:
 
 | Widget | NRQL |
 |---|---|
