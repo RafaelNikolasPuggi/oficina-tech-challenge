@@ -10,6 +10,17 @@ Este é o repositório 4 de 4 do Tech Challenge — a aplicação principal. Os 
 (`oficina-lambda-auth`, `oficina-infra-k8s`, `oficina-infra-db`) estão descritos na
 seção [Fase 3](#fase-3--operação-corporativa-nuvem-real-4-repositórios) abaixo.
 
+## Deploy ativo (Fase 3 — AWS real)
+
+> A infraestrutura roda sob demanda para conter custo; se os links abaixo não
+> responderem, é porque o ambiente foi desligado (`terraform destroy`) após a
+> gravação da demonstração — ver os 3 repositórios de infraestrutura para
+> reaplicar.
+
+- **API + Swagger**: http://ae65deff85359470e8d2de969410d562-2eac41316cad19f3.elb.us-east-1.amazonaws.com/docs
+- **Health check**: http://ae65deff85359470e8d2de969410d562-2eac41316cad19f3.elb.us-east-1.amazonaws.com/health
+- **Login do cliente por CPF (Function Serverless)**: `POST https://wq5yeux4ge.execute-api.us-east-1.amazonaws.com/auth/cliente` — ver [`oficina-lambda-auth`](https://github.com/RafaelNikolasPuggi/oficina-lambda-auth).
+
 ## Objetivo
 
 Substituir o controle manual (planilhas/anotações) por um sistema único que permita:
