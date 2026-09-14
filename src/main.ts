@@ -11,7 +11,22 @@ async function bootstrap() {
     logger: new JsonLoggerService(),
   });
 
-  app.use(helmet());
+  app.use(
+    helmet({
+      // O deploy real (NLB) serve a aplicação em HTTP puro, sem TLS
+      // terminado no load balancer — a diretiva padrão
+      // upgrade-insecure-requests faz o navegador forçar HTTPS para
+      // todo asset (JS/CSS do Swagger UI, por exemplo), que falha
+      // silenciosamente por não haver listener HTTPS, deixando a página
+      // em branco.
+      contentSecurityPolicy: {
+        directives: {
+          ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+          'upgrade-insecure-requests': null,
+        },
+      },
+    }),
+  );
   app.enableCors();
 
   app.useGlobalPipes(
