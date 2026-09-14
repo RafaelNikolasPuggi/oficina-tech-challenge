@@ -61,14 +61,21 @@ jobs:
           echo "::add-mask::$ADMIN_TOKEN"
           echo "ADMIN_TOKEN=$ADMIN_TOKEN" >> "$GITHUB_ENV"
 
-      - name: 2) Criar cliente de teste (CPF válido usado nos testes automatizados)
+      - name: 2) Criar cliente de teste (idempotente — reaproveita se já existir)
         run: |
-          RESP=$(curl -sf -X POST "$APP_URL/clientes" \
+          HTTP_CODE=$(curl -s -o /tmp/create_cliente.json -w "%{http_code}" -X POST "$APP_URL/clientes" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${ADMIN_TOKEN}" \
             -d '{"nome":"Cliente Teste E2E","documento":"111.444.777-35","email":"cliente.teste@example.com","telefone":"11987654321"}')
-          echo "resposta criação cliente: $RESP"
-          CLIENTE_ID=$(echo "$RESP" | node -pe 'JSON.parse(require("fs").readFileSync(0)).id')
+          echo "HTTP $HTTP_CODE"; cat /tmp/create_cliente.json
+
+          if [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "200" ]; then
+            CLIENTE_ID=$(node -pe 'JSON.parse(require("fs").readFileSync("/tmp/create_cliente.json")).id')
+          else
+            echo "cliente já existente, buscando por documento..."
+            LIST=$(curl -sf "$APP_URL/clientes?limit=100" -H "Authorization: Bearer ${ADMIN_TOKEN}")
+            CLIENTE_ID=$(echo "$LIST" | node -pe 'JSON.parse(require("fs").readFileSync(0)).items.find(c => c.documento === "111.444.777-35").id')
+          fi
           echo "CLIENTE_ID=$CLIENTE_ID" >> "$GITHUB_ENV"
 
       - name: 3) Login do cliente por CPF na Lambda (Fase 3)
