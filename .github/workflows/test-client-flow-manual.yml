@@ -1,0 +1,102 @@
+name: Teste manual do fluxo de autenticação do cliente (ambiente real EKS)
+
+# Só roda manualmente. Popula o banco real (vazio no primeiro deploy) com um
+# admin e um cliente de teste, depois valida o fluxo novo da Fase 3:
+# login do cliente por CPF na Lambda -> JWT -> consumo das rotas protegidas
+# do app principal via API pública (NLB).
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Seed + teste ponta a ponta
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - uses: azure/setup-kubectl@v4
+
+      - name: Apontar kubectl para o cluster EKS
+        run: |
+          EKS_CLUSTER_NAME=$(aws ssm get-parameter --name /oficina/eks_cluster_name --query Parameter.Value --output text)
+          aws eks update-kubeconfig --region "${{ vars.AWS_REGION || 'us-east-1' }}" --name "$EKS_CLUSTER_NAME"
+
+      - name: Ler configuração publicada no SSM
+        run: |
+          DB_PASSWORD=$(aws ssm get-parameter --name /oficina/db_password --with-decryption --query Parameter.Value --output text)
+          echo "::add-mask::$DB_PASSWORD"
+          echo "DB_PASSWORD=$DB_PASSWORD" >> "$GITHUB_ENV"
+          echo "LAMBDA_API_ENDPOINT=https://wq5yeux4ge.execute-api.us-east-1.amazonaws.com" >> "$GITHUB_ENV"
+          echo "APP_URL=http://ae65deff85359470e8d2de969410d562-2eac41316cad19f3.elb.us-east-1.amazonaws.com" >> "$GITHUB_ENV"
+
+      - name: Seed do usuário admin (idempotente)
+        run: |
+          IMAGE=$(kubectl -n oficina get deployment oficina-app -o jsonpath='{.spec.template.spec.containers[0].image}')
+          kubectl -n oficina run seed-admin-real --rm -i --restart=Never \
+            --image="$IMAGE" \
+            --env="DB_HOST=$(aws ssm get-parameter --name /oficina/db_endpoint --query Parameter.Value --output text)" \
+            --env="DB_PORT=5432" --env="DB_SSL=true" \
+            --env="DB_USERNAME=$(aws ssm get-parameter --name /oficina/db_username --with-decryption --query Parameter.Value --output text)" \
+            --env="DB_PASSWORD=${DB_PASSWORD}" \
+            --env="DB_DATABASE=oficina" \
+            --env="ADMIN_EMAIL=admin@oficina.com" --env="ADMIN_PASSWORD=SenhaForte123" \
+            -- node dist/seed/seed-admin.js
+
+      - name: 1) Login do admin
+        run: |
+          RESP=$(curl -sf -X POST "$APP_URL/auth/login" \
+            -H "Content-Type: application/json" \
+            -d '{"email":"admin@oficina.com","senha":"SenhaForte123"}')
+          echo "resposta login admin: $RESP"
+          ADMIN_TOKEN=$(echo "$RESP" | node -pe 'JSON.parse(require("fs").readFileSync(0)).accessToken')
+          echo "::add-mask::$ADMIN_TOKEN"
+          echo "ADMIN_TOKEN=$ADMIN_TOKEN" >> "$GITHUB_ENV"
+
+      - name: 2) Criar cliente de teste (CPF válido usado nos testes automatizados)
+        run: |
+          RESP=$(curl -sf -X POST "$APP_URL/clientes" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            -d '{"nome":"Cliente Teste E2E","documento":"111.444.777-35","email":"cliente.teste@example.com","telefone":"11987654321"}')
+          echo "resposta criação cliente: $RESP"
+          CLIENTE_ID=$(echo "$RESP" | node -pe 'JSON.parse(require("fs").readFileSync(0)).id')
+          echo "CLIENTE_ID=$CLIENTE_ID" >> "$GITHUB_ENV"
+
+      - name: 3) Login do cliente por CPF na Lambda (Fase 3)
+        run: |
+          RESP=$(curl -sf -X POST "$LAMBDA_API_ENDPOINT/auth/cliente" \
+            -H "Content-Type: application/json" \
+            -d '{"documento":"11144477735"}')
+          echo "resposta login cliente (Lambda): $RESP"
+          CLIENTE_TOKEN=$(echo "$RESP" | node -pe 'JSON.parse(require("fs").readFileSync(0)).accessToken')
+          echo "::add-mask::$CLIENTE_TOKEN"
+          echo "CLIENTE_TOKEN=$CLIENTE_TOKEN" >> "$GITHUB_ENV"
+
+      - name: 4) Consultar status de uma OS inexistente com o token do cliente (deve dar 404, não 401)
+        run: |
+          HTTP_CODE=$(curl -s -o /tmp/resp.json -w "%{http_code}" \
+            "$APP_URL/ordens-servico/00000000-0000-0000-0000-000000000000/status" \
+            -H "Authorization: Bearer ${CLIENTE_TOKEN}")
+          echo "HTTP $HTTP_CODE"
+          cat /tmp/resp.json
+          if [ "$HTTP_CODE" != "404" ]; then
+            echo "esperado 404 (nao encontrada / nao pertence ao cliente), recebido $HTTP_CODE"
+            exit 1
+          fi
+          echo "guard de cliente OK: token aceito, 404 correto para OS que nao existe/nao pertence a este cliente"
+
+      - name: 5) Confirmar que a mesma rota sem token retorna 401
+        run: |
+          HTTP_CODE=$(curl -s -o /tmp/resp2.json -w "%{http_code}" \
+            "$APP_URL/ordens-servico/00000000-0000-0000-0000-000000000000/status")
+          echo "HTTP $HTTP_CODE"
+          cat /tmp/resp2.json
+          if [ "$HTTP_CODE" != "401" ]; then
+            echo "esperado 401 sem token, recebido $HTTP_CODE"
+            exit 1
+          fi
+          echo "guard OK: sem token, acesso negado corretamente"
