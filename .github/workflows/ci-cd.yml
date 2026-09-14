@@ -275,6 +275,10 @@ jobs:
           if [ -n "$NEW_RELIC_LICENSE_KEY" ]; then
             helm repo add newrelic https://helm-charts.newrelic.com
             helm repo update
+            # --force: o job de certgen do webhook do proprio chart faz
+            # server-side apply no MutatingWebhookConfiguration por fora do
+            # Helm; a partir do segundo `upgrade` isso gera um conflito de
+            # field-manager no campo caBundle (issue conhecida do nri-bundle).
             helm upgrade --install newrelic-bundle newrelic/nri-bundle \
               --namespace newrelic --create-namespace \
               --set global.licenseKey="${NEW_RELIC_LICENSE_KEY}" \
@@ -283,7 +287,7 @@ jobs:
               --set kube-state-metrics.enabled=true \
               --set newrelic-logging.enabled=true \
               --set newrelic-logging.fluentBit.filter.excludeSystem=true \
-              --wait --timeout 5m
+              --force --wait --timeout 5m
           else
             echo "NEW_RELIC_LICENSE_KEY não configurado — pulando integração de Kubernetes."
           fi
