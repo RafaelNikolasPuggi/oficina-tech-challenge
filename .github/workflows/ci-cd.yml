@@ -255,21 +255,24 @@ jobs:
           }
 
       - name: Instalar integração do New Relic com o Kubernetes (métricas de CPU/memória/healthchecks + logs)
-        if: ${{ secrets.NEW_RELIC_LICENSE_KEY != '' }}
         env:
           NEW_RELIC_LICENSE_KEY: ${{ secrets.NEW_RELIC_LICENSE_KEY }}
         run: |
-          helm repo add newrelic https://helm-charts.newrelic.com
-          helm repo update
-          helm upgrade --install newrelic-bundle newrelic/nri-bundle \
-            --namespace newrelic --create-namespace \
-            --set global.licenseKey="${NEW_RELIC_LICENSE_KEY}" \
-            --set global.cluster=oficina-eks \
-            --set newrelic-infrastructure.privileged=true \
-            --set kube-state-metrics.enabled=true \
-            --set newrelic-logging.enabled=true \
-            --set newrelic-logging.fluentBit.filter.excludeSystem=true \
-            --wait --timeout 5m
+          if [ -n "$NEW_RELIC_LICENSE_KEY" ]; then
+            helm repo add newrelic https://helm-charts.newrelic.com
+            helm repo update
+            helm upgrade --install newrelic-bundle newrelic/nri-bundle \
+              --namespace newrelic --create-namespace \
+              --set global.licenseKey="${NEW_RELIC_LICENSE_KEY}" \
+              --set global.cluster=oficina-eks \
+              --set newrelic-infrastructure.privileged=true \
+              --set kube-state-metrics.enabled=true \
+              --set newrelic-logging.enabled=true \
+              --set newrelic-logging.fluentBit.filter.excludeSystem=true \
+              --wait --timeout 5m
+          else
+            echo "NEW_RELIC_LICENSE_KEY não configurado — pulando integração de Kubernetes."
+          fi
 
       - name: URL pública do app (NLB)
         run: |
