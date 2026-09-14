@@ -194,10 +194,22 @@ jobs:
 
       - name: Ler configuração publicada pelos outros repositórios (SSM)
         run: |
-          echo "DB_ENDPOINT=$(aws ssm get-parameter --name /oficina/db_endpoint --query Parameter.Value --output text)" >> "$GITHUB_ENV"
-          echo "DB_USERNAME=$(aws ssm get-parameter --name /oficina/db_username --with-decryption --query Parameter.Value --output text)" >> "$GITHUB_ENV"
-          echo "DB_PASSWORD=$(aws ssm get-parameter --name /oficina/db_password --with-decryption --query Parameter.Value --output text)" >> "$GITHUB_ENV"
-          echo "JWT_SECRET=$(aws ssm get-parameter --name /oficina/jwt_secret --with-decryption --query Parameter.Value --output text)" >> "$GITHUB_ENV"
+          # ::add-mask:: evita que esses valores apareçam em claro no log do
+          # Actions (inclusive no dump de env do step seguinte) — GITHUB_ENV
+          # sozinho não é suficiente porque o runner não sabe que são segredos.
+          DB_ENDPOINT=$(aws ssm get-parameter --name /oficina/db_endpoint --query Parameter.Value --output text)
+          DB_USERNAME=$(aws ssm get-parameter --name /oficina/db_username --with-decryption --query Parameter.Value --output text)
+          DB_PASSWORD=$(aws ssm get-parameter --name /oficina/db_password --with-decryption --query Parameter.Value --output text)
+          JWT_SECRET=$(aws ssm get-parameter --name /oficina/jwt_secret --with-decryption --query Parameter.Value --output text)
+
+          echo "::add-mask::$DB_USERNAME"
+          echo "::add-mask::$DB_PASSWORD"
+          echo "::add-mask::$JWT_SECRET"
+
+          echo "DB_ENDPOINT=$DB_ENDPOINT" >> "$GITHUB_ENV"
+          echo "DB_USERNAME=$DB_USERNAME" >> "$GITHUB_ENV"
+          echo "DB_PASSWORD=$DB_PASSWORD" >> "$GITHUB_ENV"
+          echo "JWT_SECRET=$JWT_SECRET" >> "$GITHUB_ENV"
 
       - name: Criar namespace e Secrets (aplicação + pull da imagem + Datadog)
         run: |
