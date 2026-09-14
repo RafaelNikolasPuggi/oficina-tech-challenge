@@ -12,10 +12,9 @@ seção [Fase 3](#fase-3--operação-corporativa-nuvem-real-4-repositórios) aba
 
 ## Deploy ativo (Fase 3 — AWS real)
 
-> A infraestrutura roda sob demanda para conter custo; se os links abaixo não
-> responderem, é porque o ambiente foi desligado (`terraform destroy`) após a
-> gravação da demonstração — ver os 3 repositórios de infraestrutura para
-> reaplicar.
+> A infraestrutura de nuvem é provisionada sob demanda, para não manter custo
+> ocioso entre usos — se os links abaixo não responderem, o ambiente está
+> desligado. Ver "Ordem de provisionamento" abaixo para reaplicar.
 
 - **API + Swagger**: http://ae65deff85359470e8d2de969410d562-2eac41316cad19f3.elb.us-east-1.amazonaws.com/docs
 - **Health check**: http://ae65deff85359470e8d2de969410d562-2eac41316cad19f3.elb.us-east-1.amazonaws.com/health
@@ -303,7 +302,10 @@ Resumo do que muda em relação à Fase 2:
 - **Observabilidade**: APM (agente Node.js do New Relic), logs estruturados com correlação de
   requisição, integração `nri-bundle` no cluster — ver [`docs/observability.md`](docs/observability.md).
 
-### Ordem de deploy (depois que a conta AWS existir)
+### Ordem de provisionamento
+
+A infraestrutura tem uma ordem de dependência clara, resolvida via SSM Parameter Store
+entre os repositórios (ver [ADR 0006](docs/adr/0006-ssm-para-integracao-entre-repos.md)):
 
 ```bash
 # 1. VPC + EKS
@@ -316,20 +318,15 @@ cd ../oficina-infra-db && terraform init && terraform apply
 cd ../oficina-lambda-auth && npm run build && npm run package
 cd infra && terraform init && terraform apply
 
-# 4. Deploy deste app no EKS (lê RDS + JWT_SECRET via SSM) — automatizado
-#    pelo job `deploy-eks` do CI/CD quando AWS_DEPLOY_ENABLED=true estiver
-#    configurado como variável do repositório no GitHub.
+# 4. Deploy deste app no EKS (lê RDS + JWT_SECRET via SSM)
 ```
 
-`terraform destroy` em `oficina-infra-db` e depois `oficina-infra-k8s` ao final —
-ver o aviso de custo no README de cada um.
+O passo 4 é automático: o job `deploy-eks` do CI/CD (`.github/workflows/ci-cd.yml`)
+roda a cada push na `main`, condicionado à variável de repositório
+`AWS_DEPLOY_ENABLED=true`. Os secrets/variáveis usados por esse pipeline
+(`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `NEW_RELIC_LICENSE_KEY`)
+são configurados nas configurações de cada repositório no GitHub — nunca commitados.
 
-### O que ainda depende de você
-
-- Criar a conta AWS e configurar `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` como
-  secrets, e `AWS_DEPLOY_ENABLED=true`/`AWS_REGION` como variáveis, nos 4 repositórios
-  no GitHub (nunca compartilhados nem commitados).
-- Criar a conta New Relic e configurar `NEW_RELIC_LICENSE_KEY` como secret neste repositório — ver
-  [`docs/observability.md`](docs/observability.md).
-- Criar os 4 repositórios no GitHub e adicionar `soat-architecture` como colaborador
-  em todos.
+Para desligar o ambiente e não manter custo de nuvem ocioso: `terraform destroy` em
+`oficina-infra-db` e depois `oficina-infra-k8s` (ver aviso de custo no README de cada
+um). Reaplicar segue a mesma ordem de 4 passos acima.

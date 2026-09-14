@@ -34,7 +34,7 @@ repositórios Terraform.
 
 ## Consequências
 
-- **Positivas:** cada repositório é genuinely independente na sua implementação
+- **Positivas:** cada repositório é de fato independente na sua implementação
   interna — só o "contrato" de nomes de parâmetro é compartilhado, funciona como uma
   API entre os repos. Segredos (`SecureString`) ficam criptografados em repouso e
   nunca em arquivo de state legível/commitado.
