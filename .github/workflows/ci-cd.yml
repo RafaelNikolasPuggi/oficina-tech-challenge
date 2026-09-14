@@ -254,6 +254,20 @@ jobs:
             exit 1
           }
 
+      - name: Reiniciar os pods se o secret do New Relic mudou (novo ou rotacionado)
+        env:
+          NEW_RELIC_LICENSE_KEY: ${{ secrets.NEW_RELIC_LICENSE_KEY }}
+        run: |
+          # `kubectl apply` no Deployment não detecta diff nenhum quando só o
+          # *conteúdo* do Secret referenciado muda (o secretKeyRef em si já
+          # estava no manifesto) — os pods já em execução continuam sem a
+          # env var até serem recriados. Reinicia sempre que a key existir,
+          # tanto na primeira vez quanto em rotações futuras.
+          if [ -n "$NEW_RELIC_LICENSE_KEY" ]; then
+            kubectl -n oficina rollout restart deployment/oficina-app
+            kubectl -n oficina rollout status deployment/oficina-app --timeout=180s
+          fi
+
       - name: Instalar integração do New Relic com o Kubernetes (métricas de CPU/memória/healthchecks + logs)
         env:
           NEW_RELIC_LICENSE_KEY: ${{ secrets.NEW_RELIC_LICENSE_KEY }}
