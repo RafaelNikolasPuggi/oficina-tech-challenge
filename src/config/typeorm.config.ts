@@ -14,6 +14,10 @@ export function buildTypeOrmOptions(
     username: db.username,
     password: db.password,
     database: db.database,
+    // RDS exige SSL por padrão (pg_hba.conf rejeita conexão em texto puro).
+    // rejectUnauthorized: false porque não empacotamos o bundle de CA da AWS
+    // no container — aceitável aqui (tráfego já fica dentro da VPC privada).
+    ssl: db.ssl ? { rejectUnauthorized: false } : false,
     autoLoadEntities: true,
     // Não há migrations neste MVP — o schema é sincronizado a partir das
     // entidades. Controlado por flag explícita (não por NODE_ENV) porque o

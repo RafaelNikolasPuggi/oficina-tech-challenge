@@ -5,6 +5,7 @@ export interface AppConfig {
     username: string;
     password: string;
     database: string;
+    ssl: boolean;
   };
   jwt: {
     secret: string;
@@ -27,6 +28,7 @@ export default (): AppConfig => ({
     username: process.env.DB_USERNAME ?? 'oficina',
     password: process.env.DB_PASSWORD ?? 'oficina',
     database: process.env.DB_DATABASE ?? 'oficina',
+    ssl: process.env.DB_SSL === 'true',
   },
   jwt: {
     secret: process.env.JWT_SECRET ?? 'dev-secret-change-me',
