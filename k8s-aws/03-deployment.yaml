@@ -5,7 +5,6 @@ metadata:
   namespace: oficina
   labels:
     app: oficina-app
-    tags.datadoghq.com/service: oficina-tech-challenge
 spec:
   replicas: 2
   selector:
@@ -15,8 +14,6 @@ spec:
     metadata:
       labels:
         app: oficina-app
-        tags.datadoghq.com/service: oficina-tech-challenge
-        admission.datadoghq.com/enabled: 'true'
     spec:
       # A imagem em ghcr.io é privada (herda a visibilidade do repositório) —
       # sem isso o pull falha com ImagePullBackOff. Secret criado pela
@@ -37,10 +34,16 @@ spec:
             - secretRef:
                 name: oficina-app-secret
           env:
-            - name: DD_AGENT_HOST
+            # newrelic-secret só existe quando NEW_RELIC_LICENSE_KEY está
+            # configurado no repositório — ver ci-cd.yml. O agente do New
+            # Relic fica desligado (NEW_RELIC_ENABLED do ConfigMap não é
+            # suficiente sozinho) sem uma license key válida.
+            - name: NEW_RELIC_LICENSE_KEY
               valueFrom:
-                fieldRef:
-                  fieldPath: status.hostIP
+                secretKeyRef:
+                  name: newrelic-secret
+                  key: license-key
+                  optional: true
           resources:
             requests:
               cpu: '100m'

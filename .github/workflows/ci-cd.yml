@@ -186,6 +186,7 @@ jobs:
           aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
 
       - uses: azure/setup-kubectl@v4
+      - uses: azure/setup-helm@v4
 
       - name: Apontar kubectl para o cluster EKS (oficina-infra-k8s)
         run: |
@@ -211,7 +212,7 @@ jobs:
           echo "DB_PASSWORD=$DB_PASSWORD" >> "$GITHUB_ENV"
           echo "JWT_SECRET=$JWT_SECRET" >> "$GITHUB_ENV"
 
-      - name: Criar namespace e Secrets (aplicação + pull da imagem + Datadog)
+      - name: Criar namespace e Secrets (aplicação + pull da imagem + New Relic)
         run: |
           kubectl create namespace oficina --dry-run=client -o yaml | kubectl apply -f -
           kubectl create secret generic oficina-app-secret -n oficina \
@@ -226,9 +227,9 @@ jobs:
             --dry-run=client -o yaml | kubectl apply -f -
           kubectl patch serviceaccount default -n oficina \
             -p '{"imagePullSecrets": [{"name": "ghcr-pull-secret"}]}'
-          if [ -n "${{ secrets.DD_API_KEY }}" ]; then
-            kubectl create secret generic datadog-secret -n oficina \
-              --from-literal=api-key="${{ secrets.DD_API_KEY }}" \
+          if [ -n "${{ secrets.NEW_RELIC_LICENSE_KEY }}" ]; then
+            kubectl create secret generic newrelic-secret -n oficina \
+              --from-literal=license-key="${{ secrets.NEW_RELIC_LICENSE_KEY }}" \
               --dry-run=client -o yaml | kubectl apply -f -
           fi
 
@@ -244,9 +245,6 @@ jobs:
           kubectl apply -f k8s-aws/04-service.yaml
           kubectl apply -f k8s-aws/05-hpa.yaml
           kubectl apply -f k8s-aws/06-mailhog.yaml
-          if [ -n "${{ secrets.DD_API_KEY }}" ]; then
-            kubectl apply -f k8s-aws/07-datadog-agent.yaml
-          fi
           kubectl -n oficina rollout status deployment/oficina-app --timeout=300s || {
             echo "::group::Diagnóstico (rollout não completou a tempo)"
             kubectl -n oficina get pods -o wide
@@ -255,6 +253,26 @@ jobs:
             echo "::endgroup::"
             exit 1
           }
+
+      - name: Instalar integração do New Relic com o Kubernetes (métricas de CPU/memória/healthchecks + logs)
+        env:
+          NEW_RELIC_LICENSE_KEY: ${{ secrets.NEW_RELIC_LICENSE_KEY }}
+        run: |
+          if [ -n "$NEW_RELIC_LICENSE_KEY" ]; then
+            helm repo add newrelic https://helm-charts.newrelic.com
+            helm repo update
+            helm upgrade --install newrelic-bundle newrelic/nri-bundle \
+              --namespace newrelic --create-namespace \
+              --set global.licenseKey="${NEW_RELIC_LICENSE_KEY}" \
+              --set global.cluster=oficina-eks \
+              --set newrelic-infrastructure.privileged=true \
+              --set kube-state-metrics.enabled=true \
+              --set newrelic-logging.enabled=true \
+              --set newrelic-logging.fluentBit.filter.excludeSystem=true \
+              --wait --timeout 5m
+          else
+            echo "NEW_RELIC_LICENSE_KEY não configurado — pulando integração de Kubernetes."
+          fi
 
       - name: URL pública do app (NLB)
         run: |
