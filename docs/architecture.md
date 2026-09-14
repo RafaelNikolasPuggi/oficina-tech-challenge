@@ -94,13 +94,13 @@ flowchart TB
             subgraph EKS["EKS"]
                 App["oficina-tech-challenge<br/>(repo 4) — 2-10 réplicas via HPA"]
                 Mailhog["Mailhog<br/>(notificações por e-mail)"]
-                DDAgent["Datadog Agent<br/>(DaemonSet)"]
+                NRAgent["New Relic&nbsp;nri-bundle<br/>(DaemonSet: infra + logs)"]
             end
             RDS[("RDS PostgreSQL<br/>oficina-infra-db (repo 3)")]
         end
     end
 
-    Datadog[["Datadog<br/>(APM, logs, dashboards)"]]
+    NewRelic[["New Relic<br/>(APM, logs, dashboards)"]]
 
     Cliente -->|"POST /auth/cliente"| APIGW --> Lambda
     Lambda -->|"consulta cliente"| RDS
@@ -111,7 +111,8 @@ flowchart TB
 
     App --> RDS
     App --> Mailhog
-    App -.traces/logs.-> DDAgent -.-> Datadog
+    App -.traces/logs (agente Node.js).-> NewRelic
+    App -.logs (stdout).-> NRAgent -.-> NewRelic
 ```
 
 ### Diagrama de Sequência — autenticação + abertura de OS

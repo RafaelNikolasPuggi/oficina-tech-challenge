@@ -7,10 +7,11 @@ export const requestIdStorage = new AsyncLocalStorage<string>();
 /**
  * Logger estruturado em JSON (um objeto por linha via `ConsoleLoggerOptions.json`,
  * suporte nativo do Nest), exigido pela Fase 3 para permitir correlação de
- * requisições e ingestão por ferramentas de observabilidade (Datadog). Quando
- * o APM está ativo (`DD_TRACE_ENABLED`), cada linha carrega
- * `dd.trace_id`/`dd.span_id`, permitindo pular de um log para o trace
- * correspondente no Datadog.
+ * requisições e ingestão por ferramentas de observabilidade (New Relic).
+ * Quando o APM está ativo (`NEW_RELIC_ENABLED`), cada linha carrega
+ * `trace.id`/`span.id`/`entity.guid` (formato que o New Relic espera para
+ * correlacionar log ↔ trace automaticamente), via
+ * `newrelic.getLinkingMetadata()`.
  */
 @Injectable()
 export class JsonLoggerService extends ConsoleLogger {
@@ -28,15 +29,10 @@ export class JsonLoggerService extends ConsoleLogger {
     const requestId = requestIdStorage.getStore();
     if (requestId) logObject.requestId = requestId;
 
-    if (process.env.DD_TRACE_ENABLED === 'true') {
+    if (process.env.NEW_RELIC_ENABLED === 'true') {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const tracer = require('dd-trace') as typeof import('dd-trace');
-      const span = tracer.scope().active();
-      if (span) {
-        const context = span.context();
-        logObject['dd.trace_id'] = context.toTraceId();
-        logObject['dd.span_id'] = context.toSpanId();
-      }
+      const newrelic = require('newrelic') as typeof import('newrelic');
+      Object.assign(logObject, newrelic.getLinkingMetadata());
     }
 
     return logObject;

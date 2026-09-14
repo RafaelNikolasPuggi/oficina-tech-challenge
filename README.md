@@ -4,7 +4,7 @@ Tech Challenge (POS TECH / SOAT) — **Fases 1, 2 e 3**. Back-end de gestão de 
 veículos, catálogo de serviços/peças e ordens de serviço (OS) de uma oficina mecânica,
 aplicando **Domain-Driven Design**/Arquitetura Hexagonal, autenticação JWT (admin e
 cliente via Function Serverless), testes automatizados, containerização, Kubernetes,
-Terraform, CI/CD, infraestrutura em nuvem (AWS) e observabilidade (Datadog).
+Terraform, CI/CD, infraestrutura em nuvem (AWS) e observabilidade (New Relic).
 
 Este é o repositório 4 de 4 do Tech Challenge — a aplicação principal. Os outros três
 (`oficina-lambda-auth`, `oficina-infra-k8s`, `oficina-infra-db`) estão descritos na
@@ -51,7 +51,7 @@ Substituir o controle manual (planilhas/anotações) por um sistema único que p
 | **GitHub Actions (Fase 2)** | Pipeline única cobrindo build, testes, build/push da imagem, provisionamento (Terraform) e deploy (kubectl) — sem exigir conta de nuvem. |
 | **AWS EKS + RDS (Fase 3)** | Cluster Kubernetes e banco gerenciados de verdade, provisionados por repositórios Terraform separados — ver [ADR 0001](docs/adr/0001-nuvem-aws.md)/[ADR 0002](docs/adr/0002-banco-gerenciado-rds.md). |
 | **Lambda + API Gateway (Fase 3)** | Autenticação de clientes por CPF, desacoplada do app principal — repositório `oficina-lambda-auth`, ver [ADR 0003](docs/adr/0003-autenticacao-serverless.md). |
-| **dd-trace + Datadog Agent (Fase 3)** | APM, logs estruturados correlacionados e métricas de infraestrutura — ver [`docs/observability.md`](docs/observability.md). |
+| **New Relic (agente Node.js + `nri-bundle` no Kubernetes) (Fase 3)** | APM, logs estruturados correlacionados e métricas de infraestrutura — ver [`docs/observability.md`](docs/observability.md). |
 
 ## Arquitetura
 
@@ -201,7 +201,7 @@ acima do mínimo de 80% exigido.
 - [`docs/database/modelo-er.md`](docs/database/modelo-er.md) — diagrama ER e
   justificativa formal do banco gerenciado.
 - [`docs/observability.md`](docs/observability.md) — o que está instrumentado
-  (APM, logs estruturados, correlação) e o que configurar no Datadog.
+  (APM, logs estruturados, correlação) e o que configurar no New Relic.
 - [`docs/adr/`](docs/adr) e [`docs/rfc/`](docs/rfc) — decisões arquiteturais e as
   alternativas consideradas (nuvem, banco gerenciado, autenticação serverless, HPA,
   integração entre os 4 repositórios).
@@ -300,8 +300,8 @@ Resumo do que muda em relação à Fase 2:
 - **Nuvem real (AWS)**, não mais `kind` local — cluster EKS, RDS gerenciado, tudo
   integrado via SSM Parameter Store entre os 4 repositórios
   ([ADR 0006](docs/adr/0006-ssm-para-integracao-entre-repos.md)).
-- **Observabilidade**: APM (`dd-trace`), logs estruturados com correlação de
-  requisição, Datadog Agent no cluster — ver [`docs/observability.md`](docs/observability.md).
+- **Observabilidade**: APM (agente Node.js do New Relic), logs estruturados com correlação de
+  requisição, integração `nri-bundle` no cluster — ver [`docs/observability.md`](docs/observability.md).
 
 ### Ordem de deploy (depois que a conta AWS existir)
 
@@ -329,7 +329,7 @@ ver o aviso de custo no README de cada um.
 - Criar a conta AWS e configurar `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` como
   secrets, e `AWS_DEPLOY_ENABLED=true`/`AWS_REGION` como variáveis, nos 4 repositórios
   no GitHub (nunca compartilhados nem commitados).
-- Criar a conta Datadog e configurar `DD_API_KEY` como secret neste repositório — ver
+- Criar a conta New Relic e configurar `NEW_RELIC_LICENSE_KEY` como secret neste repositório — ver
   [`docs/observability.md`](docs/observability.md).
 - Criar os 4 repositórios no GitHub e adicionar `soat-architecture` como colaborador
   em todos.
