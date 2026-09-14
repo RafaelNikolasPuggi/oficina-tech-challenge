@@ -1,9 +1,10 @@
-name: Teste manual do fluxo de autenticação do cliente (ambiente real EKS)
+name: Smoke test — fluxo de autenticação do cliente (ambiente real)
 
-# Só roda manualmente. Popula o banco real (vazio no primeiro deploy) com um
-# admin e um cliente de teste, depois valida o fluxo novo da Fase 3:
-# login do cliente por CPF na Lambda -> JWT -> consumo das rotas protegidas
-# do app principal via API pública (NLB).
+# Disparo manual (workflow_dispatch): valida ponta a ponta o fluxo de
+# autenticação da Fase 3 contra o ambiente real na AWS — login do cliente
+# por CPF na Lambda -> JWT -> consumo das rotas protegidas do app principal
+# via API pública (NLB). Garante um usuário admin e um cliente de teste
+# antes de rodar os cenários (operação idempotente).
 on:
   workflow_dispatch:
 
@@ -25,13 +26,17 @@ jobs:
           EKS_CLUSTER_NAME=$(aws ssm get-parameter --name /oficina/eks_cluster_name --query Parameter.Value --output text)
           aws eks update-kubeconfig --region "${{ vars.AWS_REGION || 'us-east-1' }}" --name "$EKS_CLUSTER_NAME"
 
-      - name: Ler configuração publicada no SSM
+      - name: Ler configuração publicada no SSM e no cluster
         run: |
           DB_PASSWORD=$(aws ssm get-parameter --name /oficina/db_password --with-decryption --query Parameter.Value --output text)
           echo "::add-mask::$DB_PASSWORD"
           echo "DB_PASSWORD=$DB_PASSWORD" >> "$GITHUB_ENV"
-          echo "LAMBDA_API_ENDPOINT=https://wq5yeux4ge.execute-api.us-east-1.amazonaws.com" >> "$GITHUB_ENV"
-          echo "APP_URL=http://ae65deff85359470e8d2de969410d562-2eac41316cad19f3.elb.us-east-1.amazonaws.com" >> "$GITHUB_ENV"
+
+          LAMBDA_API_ENDPOINT=$(aws ssm get-parameter --name /oficina/lambda_auth_endpoint --query Parameter.Value --output text)
+          echo "LAMBDA_API_ENDPOINT=$LAMBDA_API_ENDPOINT" >> "$GITHUB_ENV"
+
+          APP_HOSTNAME=$(kubectl -n oficina get svc oficina-app -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          echo "APP_URL=http://$APP_HOSTNAME" >> "$GITHUB_ENV"
 
       - name: Seed do usuário admin (idempotente)
         run: |

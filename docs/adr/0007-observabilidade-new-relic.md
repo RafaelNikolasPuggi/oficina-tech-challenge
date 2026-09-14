@@ -5,36 +5,41 @@
 ## Contexto
 
 A Fase 3 exige integração com uma ferramenta de observabilidade, com escolha livre
-entre Datadog ou New Relic. A instrumentação inicial (APM, logs estruturados
-correlacionados) foi implementada contra o Datadog, mas nenhuma conta real chegou a
-ser criada — quando a conta New Relic ficou disponível, a instrumentação foi trocada
-para não manter duas integrações paralelas no código.
+entre Datadog ou New Relic — ambos cobrem APM, logs estruturados e métricas de
+infraestrutura com um nível de configuração comparável.
 
 ## Decisão
 
-- Agente Node.js do New Relic (`newrelic`) substitui `dd-trace` como APM —
-  inicializado como primeiro import de `main.ts` ([`src/tracer.ts`](../../src/tracer.ts)),
-  gated por `NEW_RELIC_ENABLED`, configurado só por variáveis de ambiente
+New Relic foi escolhido pelos seguintes fatores:
+
+- **Plataforma unificada**: APM, logs, métricas de infraestrutura e dashboards em uma
+  única conta/UI, sem precisar correlacionar dados entre produtos separados.
+- **Integração de Kubernetes em uma instalação**: o chart oficial `nri-bundle` cobre
+  métricas de nó/pod (`newrelic-infrastructure`), estado do cluster
+  (`kube-state-metrics`) e encaminhamento de logs (`newrelic-logging`, via Fluent Bit)
+  em um único `helm install`, sem precisar compor múltiplos agentes manualmente.
+- **NRQL**: linguagem de consulta única para todos os tipos de dado (traces, logs,
+  métricas de infra), o que simplifica a criação dos dashboards e alertas exigidos
+  pelo desafio (volume de OS, tempo médio por status, erros de integração, latência).
+
+Implementação:
+
+- Agente Node.js do New Relic (`newrelic`) como APM — inicializado como primeiro
+  import de `main.ts` ([`src/tracer.ts`](../../src/tracer.ts)), gated por
+  `NEW_RELIC_ENABLED`, configurado só por variáveis de ambiente
   (`NEW_RELIC_NO_CONFIG_FILE=true`, sem arquivo de config commitado).
-- `JsonLoggerService` usa `newrelic.getLinkingMetadata()` (em vez do context do
-  `dd-trace`) para injetar `trace.id`/`span.id`/`entity.guid` nos logs — mesmo
-  propósito de correlação log↔trace, formato específico do New Relic.
-- A integração de Kubernetes (métricas de CPU/memória por nó/pod, `kube-state-metrics`,
-  encaminhamento de logs via Fluent Bit) passa a ser o chart oficial `nri-bundle`,
-  instalado via Helm no job `deploy-eks` — substitui o DaemonSet único do Datadog Agent
-  que era aplicado como manifesto puro.
-- O segredo `NEW_RELIC_LICENSE_KEY` (tipo *Ingest - License*) substitui `DD_API_KEY`
-  como secret do repositório; ambos os fluxos são opcionais (`if [ -n ... ]`/`if:` no
-  workflow) para não quebrar quando a chave ainda não está configurada.
+- `JsonLoggerService` usa `newrelic.getLinkingMetadata()` para injetar
+  `trace.id`/`span.id`/`entity.guid` nos logs — permite pular de um log direto para o
+  trace correspondente na UI do New Relic.
+- Integração de Kubernetes via `nri-bundle` (Helm), instalada no job `deploy-eks`
+  quando o secret `NEW_RELIC_LICENSE_KEY` está configurado no repositório.
 
 ## Consequências
 
-- **Positivas:** nenhuma duplicação de instrumentação (só um APM ativo por vez);
-  `nri-bundle` cobre métricas + logs do cluster em uma única instalação, sem precisar
-  escrever/manter um DaemonSet manifesto à mão.
+- **Positivas:** uma única instrumentação cobre APM + logs + infraestrutura; `nri-bundle`
+  elimina a necessidade de escrever/manter manifestos Kubernetes de agente à mão.
 - **Negativas:** a instalação via Helm adiciona uma dependência (`azure/setup-helm`) ao
-  pipeline que não existia antes; o repositório de infraestrutura Kubernetes
-  (`oficina-infra-k8s`) continua sem gerenciar essa release do Helm — fica a cargo do
-  job `deploy-eks` do app principal, avaliação aceita dado o escopo do desafio.
+  pipeline; o repositório de infraestrutura Kubernetes (`oficina-infra-k8s`) não
+  gerencia essa release do Helm — fica a cargo do job `deploy-eks` do app principal.
 - Ver [`docs/observability.md`](../observability.md) para o detalhamento completo do
-  que está instrumentado e os dashboards a configurar na UI do New Relic.
+  que está instrumentado e os dashboards configurados.
