@@ -40,18 +40,17 @@ Substituir o controle manual (planilhas/anotações) por um sistema único que p
 
 | Decisão | Motivo |
 |---|---|
-| **NestJS + TypeScript** | Estrutura modular que mapeia naturalmente para bounded contexts DDD, injeção de dependência nativa, Jest integrado. |
-| **PostgreSQL + TypeORM** | O domínio é fortemente relacional (Cliente → Veículo → OS → Itens de Serviço/Peça) e depende de integridade referencial e transações ACID — em especial a baixa de estoque ao aprovar um orçamento, que precisa ser atômica mesmo sob concorrência (duas OS disputando a mesma peça). Postgres é gratuito, robusto, e tem ótimo suporte a Docker. |
-| **JWT (`@nestjs/jwt` + Passport)** | Autenticação stateless para as rotas administrativas, conforme exigido pelo desafio. |
-| **class-validator** | Validação declarativa dos DTOs, incluindo validadores customizados de CPF/CNPJ (dígito verificador) e placa (formato antigo e Mercosul). |
-| **Swagger (`@nestjs/swagger`)** | Documentação OpenAPI gerada a partir do próprio código, sempre atualizada. |
-| **Jest + Supertest** | Testes unitários (domínio/aplicação) e de integração (e2e, contra Postgres real). |
-| **Nodemailer + Mailhog** | Notificação por e-mail das mudanças de status da OS; Mailhog captura os e-mails localmente/CI sem precisar de conta SMTP real. |
-| **Kubernetes + Terraform (Fase 2)** | Escalabilidade dinâmica (HPA) e infraestrutura versionada/reprodutível; cluster local (kind) para não depender de custo de nuvem — ver [`docs/architecture.md`](docs/architecture.md). |
-| **GitHub Actions (Fase 2)** | Pipeline única cobrindo build, testes, build/push da imagem, provisionamento (Terraform) e deploy (kubectl) — sem exigir conta de nuvem. |
-| **AWS EKS + RDS (Fase 3)** | Cluster Kubernetes e banco gerenciados de verdade, provisionados por repositórios Terraform separados — ver [ADR 0001](docs/adr/0001-nuvem-aws.md)/[ADR 0002](docs/adr/0002-banco-gerenciado-rds.md). |
-| **Lambda + API Gateway (Fase 3)** | Autenticação de clientes por CPF, desacoplada do app principal — repositório `oficina-lambda-auth`, ver [ADR 0003](docs/adr/0003-autenticacao-serverless.md). |
-| **New Relic (agente Node.js + `nri-bundle` no Kubernetes) (Fase 3)** | APM, logs estruturados correlacionados e métricas de infraestrutura — ver [`docs/observability.md`](docs/observability.md). |
+| **NestJS + TypeScript** | Mapeia naturalmente para bounded contexts DDD, com injeção de dependência nativa e Jest integrado. |
+| **PostgreSQL + TypeORM** | Domínio fortemente relacional (Cliente → Veículo → OS → Itens); precisa de transações ACID — em especial a baixa de estoque, que tem que ser atômica sob concorrência. |
+| **JWT (`@nestjs/jwt` + Passport)** | Autenticação stateless para as rotas administrativas. |
+| **class-validator** | Validação declarativa dos DTOs, com validadores customizados de CPF/CNPJ e placa. |
+| **Swagger (`@nestjs/swagger`)** | Documentação OpenAPI gerada a partir do próprio código. |
+| **Jest + Supertest** | Testes unitários (domínio/aplicação) e e2e (contra Postgres real). |
+| **Nodemailer + Mailhog** | Notificação por e-mail das mudanças de status da OS; Mailhog captura localmente/CI sem precisar de conta SMTP real. |
+| **Kubernetes + Terraform (Fase 2)** | Escalabilidade dinâmica (HPA) e infra versionada — ver [`docs/architecture.md`](docs/architecture.md). |
+| **AWS EKS + RDS (Fase 3)** | Cluster e banco gerenciados de verdade, provisionados por repositórios Terraform separados — ver [ADR 0001](docs/adr/0001-nuvem-aws.md)/[ADR 0002](docs/adr/0002-banco-gerenciado-rds.md). |
+| **Lambda + API Gateway (Fase 3)** | Autenticação de clientes por CPF, desacoplada do app principal — ver [ADR 0003](docs/adr/0003-autenticacao-serverless.md). |
+| **New Relic (Fase 3)** | APM, logs correlacionados e métricas de infraestrutura — ver [`docs/observability.md`](docs/observability.md). |
 
 ## Arquitetura
 
@@ -77,15 +76,14 @@ src/
 
 Em cada módulo:
 
-- **domain/** — entidades e Value Objects com as regras de negócio e invariantes; não depende de framework nem de banco.
-- **application/** — casos de uso (services) que orquestram o domínio e os repositórios; ponto único onde a lógica de negócio é acionada.
-- **infrastructure/** — implementação dos repositórios com TypeORM (mapeamento domínio ↔ tabela).
-- **interfaces/http/** — controllers, DTOs e validação — a única camada que conhece HTTP/Swagger.
+- **domain/** — entidades e Value Objects com as regras de negócio; não depende de framework nem de banco.
+- **application/** — casos de uso que orquestram domínio e repositórios.
+- **infrastructure/** — implementação dos repositórios com TypeORM.
+- **interfaces/http/** — controllers, DTOs e validação; única camada que conhece HTTP/Swagger.
 
-A regra de dependência é sempre **de fora para dentro**: `interfaces` depende de
-`application`, que depende de `domain`; `infrastructure` implementa interfaces definidas
-pelo `domain` (Dependency Inversion — cada módulo expõe um token de injeção, ex.
-`CLIENTE_REPOSITORY`, e o domínio nunca importa TypeORM).
+Dependência sempre **de fora para dentro**: `interfaces` → `application` → `domain`;
+`infrastructure` implementa interfaces definidas pelo `domain` (Dependency Inversion —
+o domínio nunca importa TypeORM diretamente).
 
 ### Agregado `OrdemServico`
 
@@ -233,28 +231,25 @@ acima do mínimo de 80% exigido.
 \* JWT emitido por `POST {api_endpoint}/auth/cliente` no repositório
 `oficina-lambda-auth` (Fase 3) — ver seção Segurança.
 
-**Comportamento de `GET /ordens-servico` (Fase 2):** sem o parâmetro `status`, aplica a
-listagem operacional — oculta OS `Finalizada`/`Entregue` (exclusão lógica) e ordena por
-prioridade: `Em Execução > Aguardando Aprovação > Em Diagnóstico > Recebida`, mais
-antigas primeiro dentro de cada grupo. Com `status` informado, filtra exatamente por
-ele (permite consultar o histórico de OS finalizadas/entregues).
+**`GET /ordens-servico` sem `status`:** aplica a listagem operacional — oculta OS
+`Finalizada`/`Entregue` e ordena por prioridade (`Em Execução > Aguardando Aprovação >
+Em Diagnóstico > Recebida`). Com `status` informado, filtra exatamente por ele.
 
-**Notificação por e-mail (Fase 2):** a cada mudança de status, o cliente recebe um
-e-mail (Nodemailer). Localmente/CI isso é capturado pelo Mailhog — UI em
-`http://localhost:8025` — sem precisar de conta de e-mail real; uma falha no envio
-nunca reverte a transição de status já persistida.
+**Notificação por e-mail:** a cada mudança de status, o cliente recebe um e-mail
+(Nodemailer/Mailhog); uma falha no envio nunca reverte a transição já persistida.
 
 Especificação completa e testável: `/docs` (Swagger UI) na aplicação em execução.
 
-## Kubernetes, Terraform e CI/CD (Fase 2)
+## Kubernetes, Terraform e CI/CD (Fase 2 — cluster local)
 
-Visão geral do fluxo completo, diagramas e decisões em
-[`docs/architecture.md`](docs/architecture.md#fluxo-de-deploy-fase-2).
+Fluxo completo, diagramas e decisões em
+[`docs/architecture.md`](docs/architecture.md#fluxo-de-deploy-fase-2). Resumo prático
+abaixo; para a nuvem real (Fase 3), ver a seção seguinte.
 
 ### Provisionar a infraestrutura (Terraform)
 
-Cria o cluster Kubernetes local (kind) e o banco de dados (Postgres) dentro dele —
-detalhes e recursos criados em [`infra/README.md`](infra/README.md).
+Cria um cluster Kubernetes local (`kind`) e o Postgres dentro dele — detalhes em
+[`infra/README.md`](infra/README.md).
 
 ```bash
 cd infra
@@ -282,26 +277,24 @@ referência (já ignorado pelo git).
 
 [`/.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml) executa, a cada push na
 `main`: build → lint → testes → build/push da imagem (`ghcr.io`) → `terraform apply`
-(cluster + banco) → `kubectl apply` dos manifestos → smoke test (`/health` +
-`/auth/login`) → `terraform destroy` do cluster efêmero de CI. Não exige nenhuma conta
-de nuvem nem secret configurado manualmente — os segredos usados no cluster efêmero de
-CI são gerados aleatoriamente a cada execução.
+(cluster + banco efêmeros) → `kubectl apply` → smoke test → `terraform destroy`. Não
+exige conta de nuvem nem secret configurado manualmente — os segredos do cluster
+efêmero são gerados aleatoriamente a cada execução.
 
 ## Fase 3 — operação corporativa (nuvem real, 4 repositórios)
 
 Visão completa (diagramas, ADRs, RFCs) em [`docs/architecture.md`](docs/architecture.md#fase-3--operação-corporativa-4-repositórios-nuvem-real).
-Resumo do que muda em relação à Fase 2:
+O que muda em relação à Fase 2:
 
 - **4 repositórios** em vez de 1: `oficina-lambda-auth` (autenticação por CPF),
-  `oficina-infra-k8s` (VPC + EKS), `oficina-infra-db` (RDS), e este repositório
-  (aplicação principal). Cada um com seu próprio `README.md` e pipeline de CI/CD.
-- **Autenticação de cliente via JWT** (não mais CPF por requisição) — ver seção
-  Segurança acima e [ADR 0003](docs/adr/0003-autenticacao-serverless.md).
-- **Nuvem real (AWS)**, não mais `kind` local — cluster EKS, RDS gerenciado, tudo
-  integrado via SSM Parameter Store entre os 4 repositórios
-  ([ADR 0006](docs/adr/0006-ssm-para-integracao-entre-repos.md)).
-- **Observabilidade**: APM (agente Node.js do New Relic), logs estruturados com correlação de
-  requisição, integração `nri-bundle` no cluster — ver [`docs/observability.md`](docs/observability.md).
+  `oficina-infra-k8s` (VPC + EKS), `oficina-infra-db` (RDS) e este (aplicação
+  principal) — cada um com `README.md` e pipeline de CI/CD próprios.
+- **Autenticação de cliente via JWT**, não mais CPF por requisição — ver seção
+  Segurança e [ADR 0003](docs/adr/0003-autenticacao-serverless.md).
+- **Nuvem real (AWS)**: cluster EKS, RDS gerenciado, integrados via SSM Parameter
+  Store entre os 4 repositórios ([ADR 0006](docs/adr/0006-ssm-para-integracao-entre-repos.md)).
+- **Observabilidade**: APM, logs correlacionados e integração `nri-bundle` no
+  cluster — ver [`docs/observability.md`](docs/observability.md).
 
 ### Ordem de provisionamento
 
