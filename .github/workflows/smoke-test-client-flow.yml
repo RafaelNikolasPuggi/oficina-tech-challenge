@@ -78,6 +78,38 @@ jobs:
           fi
           echo "CLIENTE_ID=$CLIENTE_ID" >> "$GITHUB_ENV"
 
+      - name: 2b) Criar veículo, serviço e uma ordem de serviço de teste (idempotente)
+        run: |
+          HTTP_CODE=$(curl -s -o /tmp/create_veiculo.json -w "%{http_code}" -X POST "$APP_URL/veiculos" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            -d "{\"clienteId\":\"${CLIENTE_ID}\",\"placa\":\"TST1A23\",\"marca\":\"Volkswagen\",\"modelo\":\"Gol\",\"ano\":2020}")
+          if [ "$HTTP_CODE" = "201" ]; then
+            VEICULO_ID=$(node -pe 'JSON.parse(require("fs").readFileSync("/tmp/create_veiculo.json")).id')
+          else
+            LIST=$(curl -sf "$APP_URL/veiculos?limit=100" -H "Authorization: Bearer ${ADMIN_TOKEN}")
+            VEICULO_ID=$(echo "$LIST" | node -pe 'JSON.parse(require("fs").readFileSync(0)).items.find(v => v.placa === "TST1A23").id')
+          fi
+          echo "VEICULO_ID=$VEICULO_ID"
+
+          HTTP_CODE=$(curl -s -o /tmp/create_servico.json -w "%{http_code}" -X POST "$APP_URL/servicos" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            -d '{"nome":"Troca de óleo (smoke test)","descricao":"Troca de óleo e filtro","preco":150.0,"tempoEstimadoMinutos":60}')
+          if [ "$HTTP_CODE" = "201" ]; then
+            SERVICO_ID=$(node -pe 'JSON.parse(require("fs").readFileSync("/tmp/create_servico.json")).id')
+          else
+            LIST=$(curl -sf "$APP_URL/servicos?limit=100" -H "Authorization: Bearer ${ADMIN_TOKEN}")
+            SERVICO_ID=$(echo "$LIST" | node -pe 'JSON.parse(require("fs").readFileSync(0)).items.find(s => s.nome === "Troca de óleo (smoke test)").id')
+          fi
+          echo "SERVICO_ID=$SERVICO_ID"
+
+          RESP=$(curl -sf -X POST "$APP_URL/ordens-servico" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            -d "{\"clienteId\":\"${CLIENTE_ID}\",\"veiculoId\":\"${VEICULO_ID}\",\"servicos\":[{\"id\":\"${SERVICO_ID}\",\"quantidade\":1}],\"pecas\":[]}")
+          echo "resposta criação OS: $RESP"
+
       - name: 3) Login do cliente por CPF na Lambda (Fase 3)
         run: |
           RESP=$(curl -sf -X POST "$LAMBDA_API_ENDPOINT/auth/cliente" \
