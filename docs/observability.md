@@ -16,13 +16,26 @@ Dashboard "Oficina Tech Challenge — Operação", com 4 widgets:
 
 | Widget | NRQL |
 |---|---|
-| Volume diário de ordens de serviço | `SELECT count(*) FROM Transaction WHERE appName = 'oficina-tech-challenge' AND name LIKE '%ordens-servico%' AND request.method = 'POST' TIMESERIES 1 day` |
+| Volume diário de ordens de serviço | `SELECT count(*) FROM Transaction WHERE appName = 'oficina-tech-challenge' AND name LIKE '%POST%ordens-servico%' TIMESERIES AUTO` |
 | Tempo médio de execução por status | `SELECT average(duration) FROM Transaction WHERE appName = 'oficina-tech-challenge' AND name LIKE '%ordens-servico%' FACET name TIMESERIES` |
 | Erros e falhas nas integrações | `SELECT count(*) FROM Log WHERE level = 'error' FACET context TIMESERIES` |
 | Latência das APIs (p50/p95/p99) | `SELECT percentile(duration, 50, 95, 99) FROM Transaction WHERE appName = 'oficina-tech-challenge' TIMESERIES` |
 
-A latência (p50/p95/p99) também está disponível automaticamente na visão padrão de APM
-do New Relic, sem necessidade de dashboard customizado.
+Notas sobre as queries:
+- `TIMESERIES AUTO` (em vez de um bucket fixo como `1 day`) deixa o New Relic escolher
+  o tamanho do intervalo compatível com a janela de tempo selecionada no dashboard —
+  um bucket fixo maior que a janela visível falha com
+  `TIMESERIES step size is larger than the current time window`.
+- O verbo HTTP não é filtrado via um atributo separado (`request.method`, que o agente
+  Node não popula por padrão) — o nome da transação já inclui o verbo
+  (`WebTransaction/Expressjs/POST//ordens-servico`), então o filtro fica embutido no
+  próprio `name LIKE`.
+- A latência (p50/p95/p99) também está disponível automaticamente na visão padrão de
+  APM do New Relic, sem necessidade de dashboard customizado.
+- O intervalo padrão do dashboard deve cobrir uma janela com volume de tráfego
+  suficiente para os widgets baseados em `TIMESERIES 1 day`/`FACET` renderizarem pontos
+  visíveis (recomendado: "Last 3 days" ou mais, configurado no seletor de tempo do
+  próprio dashboard).
 
 ## Alertas configurados (New Relic Alerts)
 
