@@ -21,6 +21,13 @@ jobs:
           EKS_CLUSTER_NAME=$(aws ssm get-parameter --name /oficina/eks_cluster_name --query Parameter.Value --output text)
           aws eks update-kubeconfig --region "${{ vars.AWS_REGION || 'us-east-1' }}" --name "$EKS_CLUSTER_NAME"
 
+      - name: Reiniciar os pods (pega o secret atualizado) e esperar ficarem prontos
+        run: |
+          kubectl -n oficina rollout restart deployment/oficina-app
+          kubectl -n oficina rollout status deployment/oficina-app --timeout=180s
+          echo "Aguardando o agente ter tempo de conectar..."
+          sleep 25
+
       - name: Pods e variáveis de ambiente relevantes
         run: |
           echo "::group::Pods no namespace oficina"
