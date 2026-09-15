@@ -4,6 +4,7 @@ import {
   DuplicateEntityException,
   EntityNotFoundException,
 } from '../../../shared/domain/exceptions';
+import { Placa } from '../../../shared/domain/placa.vo';
 import { PaginatedResult } from '../../../shared/dto/pagination.dto';
 import { CLIENTE_REPOSITORY } from '../../clientes/domain/cliente.repository';
 import type { ClienteRepository } from '../../clientes/domain/cliente.repository';
@@ -40,7 +41,12 @@ export class VeiculosService {
       throw new EntityNotFoundException('Cliente', input.clienteId);
     }
 
-    const existente = await this.veiculoRepository.buscarPorPlaca(input.placa);
+    // A placa é persistida normalizada (sem espaço/traço, maiúscula -- ver
+    // Placa/Veiculo.criar); normaliza antes de comparar pelo mesmo motivo
+    // documentado em ClientesService.criar.
+    const placaNormalizada = Placa.criar(input.placa).getValor();
+    const existente =
+      await this.veiculoRepository.buscarPorPlaca(placaNormalizada);
     if (existente) {
       throw new DuplicateEntityException('Veículo', 'placa', input.placa);
     }

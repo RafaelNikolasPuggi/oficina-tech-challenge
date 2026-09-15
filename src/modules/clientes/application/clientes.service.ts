@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PaginatedResult } from '../../../shared/dto/pagination.dto';
+import { CpfCnpj } from '../../../shared/domain/cpf-cnpj.vo';
 import {
   DuplicateEntityException,
   EntityNotFoundException,
@@ -30,9 +31,13 @@ export class ClientesService {
   ) {}
 
   async criar(input: CriarClienteInput): Promise<Cliente> {
-    const existente = await this.clienteRepository.buscarPorDocumento(
-      input.documento,
-    );
+    // O documento é persistido normalizado (só dígitos, ver CpfCnpj/Cliente.criar) --
+    // a checagem de duplicidade precisa normalizar antes de comparar, senão
+    // "111.444.777-35" e "11144477735" não batem na busca e a colisão só é
+    // pega pela constraint única do banco, gerando 500 em vez de 409.
+    const documentoNormalizado = CpfCnpj.criar(input.documento).getValor();
+    const existente =
+      await this.clienteRepository.buscarPorDocumento(documentoNormalizado);
     if (existente) {
       throw new DuplicateEntityException(
         'Cliente',
