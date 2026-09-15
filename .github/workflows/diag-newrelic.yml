@@ -34,7 +34,7 @@ jobs:
           kubectl -n oficina get pods -o wide
           echo "::endgroup::"
 
-          POD=$(kubectl -n oficina get pods -l app=oficina-app -o jsonpath='{.items[0].metadata.name}')
+          POD=$(kubectl -n oficina get pods -l app=oficina-app --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
           echo "Pod selecionado: $POD"
 
           echo "::group::Variáveis NEW_RELIC_* dentro do container"
