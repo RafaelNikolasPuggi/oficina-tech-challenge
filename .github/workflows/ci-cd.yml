@@ -284,6 +284,11 @@ jobs:
             # objeto antes do upgrade evita o conflito, já que o hook do
             # chart recria esse recurso em toda instalação/upgrade.
             kubectl delete mutatingwebhookconfiguration newrelic-bundle-nri-metadata-injection --ignore-not-found
+            # Best-effort: a aplicação já foi implantada com sucesso no step
+            # anterior. Um timeout aqui (ex.: DaemonSet do Fluent Bit
+            # demorando mais que o normal pra ficar Ready) não deve marcar o
+            # deploy inteiro como falho -- é só o agente de observabilidade,
+            # não a aplicação em si.
             helm upgrade --install newrelic-bundle newrelic/nri-bundle \
               --namespace newrelic --create-namespace \
               --set global.licenseKey="${NEW_RELIC_LICENSE_KEY}" \
@@ -292,7 +297,8 @@ jobs:
               --set kube-state-metrics.enabled=true \
               --set newrelic-logging.enabled=true \
               --set newrelic-logging.fluentBit.filter.excludeSystem=true \
-              --wait --timeout 5m
+              --wait --timeout 8m \
+              || echo "::warning::Integração do New Relic com o Kubernetes falhou ou expirou o tempo limite -- a aplicação em si já foi implantada com sucesso no step anterior. Verifique manualmente com 'helm status newrelic-bundle -n newrelic'."
           else
             echo "NEW_RELIC_LICENSE_KEY não configurado — pulando integração de Kubernetes."
           fi
