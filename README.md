@@ -281,7 +281,7 @@ referência (já ignorado pelo git).
 exige conta de nuvem nem secret configurado manualmente — os segredos do cluster
 efêmero são gerados aleatoriamente a cada execução.
 
-## Fase 3 — operação corporativa (nuvem real, 4 repositórios)
+## Fase 3 — operação corporativa (nuvem aws, 4 repositórios)
 
 Visão completa (diagramas, ADRs, RFCs) em [`docs/architecture.md`](docs/architecture.md#fase-3--operação-corporativa-4-repositórios-nuvem-real).
 O que muda em relação à Fase 2:
