@@ -46,10 +46,7 @@ async function bootstrap() {
       'API do sistema de gestão da oficina: clientes, veículos, catálogo de serviços/peças, ordens de serviço e autenticação de clientes (Fase 3).',
     )
     .setVersion('3.0.0')
-    .addBearerAuth(
-      { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
-      'JWT-auth',
-    )
+    .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' })
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, document);
