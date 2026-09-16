@@ -324,6 +324,3 @@ são configurados nas configurações de cada repositório no GitHub — nunca c
 Para desligar o ambiente e não manter custo de nuvem ocioso: `terraform destroy` em
 `oficina-infra-db` e depois `oficina-infra-k8s` (ver aviso de custo no README de cada
 um). Reaplicar segue a mesma ordem de 4 passos acima.
-
-
-Testando de novo
