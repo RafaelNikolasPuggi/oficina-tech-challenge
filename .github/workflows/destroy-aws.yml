@@ -1,0 +1,74 @@
+name: Desligar ambiente AWS (terraform destroy dos 3 repositórios de infraestrutura)
+
+# Disparo manual. Remove, na ordem inversa de dependência, tudo que gera custo:
+# Load Balancer do app -> Lambda/API Gateway -> RDS -> EKS/VPC/NAT.
+# Para reprovisionar, seguir "Ordem de provisionamento" do README.
+on:
+  workflow_dispatch:
+
+jobs:
+  destroy:
+    name: Destruir infraestrutura na ordem inversa de dependência
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - uses: azure/setup-kubectl@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: 1) Remover o Load Balancer criado pelo Kubernetes (senão bloqueia a remoção da VPC)
+        run: |
+          EKS_CLUSTER_NAME=$(aws ssm get-parameter --name /oficina/eks_cluster_name --query Parameter.Value --output text)
+          aws eks update-kubeconfig --region "${{ vars.AWS_REGION || 'us-east-1' }}" --name "$EKS_CLUSTER_NAME"
+          kubectl delete namespace oficina --timeout=180s || true
+          for i in $(seq 1 30); do
+            COUNT=$(aws elbv2 describe-load-balancers --query 'length(LoadBalancers)' --output text)
+            echo "load balancers restantes: $COUNT"
+            [ "$COUNT" = "0" ] && break
+            sleep 10
+          done
+
+      - uses: actions/checkout@v4
+        with:
+          repository: RafaelNikolasPuggi/oficina-lambda-auth
+          path: lambda-auth
+      - name: 2) Destruir Lambda + API Gateway
+        working-directory: lambda-auth/infra
+        run: |
+          touch ../function.zip
+          terraform init
+          terraform destroy -auto-approve
+
+      - uses: actions/checkout@v4
+        with:
+          repository: RafaelNikolasPuggi/oficina-infra-db
+          path: infra-db
+      - name: 3) Destruir RDS
+        working-directory: infra-db
+        run: |
+          terraform init
+          terraform destroy -auto-approve
+
+      - uses: actions/checkout@v4
+        with:
+          repository: RafaelNikolasPuggi/oficina-infra-k8s
+          path: infra-k8s
+      - name: 4) Destruir EKS + NAT + VPC
+        working-directory: infra-k8s
+        run: |
+          terraform init
+          terraform destroy -auto-approve
+
+      - name: Verificação final
+        run: |
+          echo "EKS:";  aws eks list-clusters --output text
+          echo "NAT:";  aws ec2 describe-nat-gateways --filter "Name=state,Values=pending,available" --query 'NatGateways[].NatGatewayId' --output text
+          echo "RDS:";  aws rds describe-db-instances --query 'DBInstances[].DBInstanceIdentifier' --output text
+          echo "ELB:";  aws elbv2 describe-load-balancers --query 'LoadBalancers[].LoadBalancerArn' --output text
+          echo "EIP:";  aws ec2 describe-addresses --query 'Addresses[].AllocationId' --output text
